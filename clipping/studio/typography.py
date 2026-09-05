@@ -110,23 +110,23 @@ def download_google_font(
 
             if not is_valid(temp_path):
                 ukuran = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
-                raise ValueError(f"file hasil download tidak valid ({ukuran} byte)")
+                raise ValueError(f"downloaded font file is invalid ({ukuran} bytes)")
 
             os.replace(temp_path, file_path)
 
             if is_valid(file_path):
                 print(
-                    f"   ✅ Font '{output_filename}' berhasil diunduh dan terverifikasi."
+                    f"   ✅ Font '{output_filename}' downloaded and verified successfully."
                 )
                 return True
 
             raise FileNotFoundError(
-                f"File final '{output_filename}' tidak valid di {font_dir}"
+                f"Final font file '{output_filename}' is invalid in {font_dir}"
             )
 
         except Exception as e:
             print(
-                f"   ⚠️ Gagal download font '{output_filename}' percobaan {percobaan}: {e}"
+                f"   ⚠️ Failed to download font '{output_filename}' attempt {percobaan}: {e}"
             )
 
             for p in [temp_path, file_path]:
@@ -140,7 +140,7 @@ def download_google_font(
             if percobaan < max_retry:
                 time.sleep(1.5)
 
-    print(f"   ❌ Gagal total: font '{output_filename}' setelah {max_retry} percobaan.")
+    print(f"   ❌ Total failure: font '{output_filename}' after {max_retry} attempts.")
     return False
 
 
@@ -167,7 +167,11 @@ def register_fonts_for_libass(font_dir):
         # On Windows, libass can use fontsdir directly — skip fc-cache
         return
 
-    user_font_dir = os.path.expanduser("~/.local/share/fonts")
+    import platform
+    if platform.system() == "Darwin":
+        user_font_dir = os.path.expanduser("~/Library/Fonts")
+    else:
+        user_font_dir = os.path.expanduser("~/.local/share/fonts")
     os.makedirs(user_font_dir, exist_ok=True)
 
     copied = []
@@ -175,10 +179,13 @@ def register_fonts_for_libass(font_dir):
         if fn.lower().endswith((".ttf", ".otf")):
             src = os.path.join(font_dir, fn)
             dst = os.path.join(user_font_dir, fn)
-            shutil.copy2(src, dst)
-            copied.append(dst)
+            try:
+                shutil.copy2(src, dst)
+                copied.append(dst)
+            except Exception:
+                pass
 
-    if copied:
+    if copied and shutil.which("fc-cache"):
         subprocess.run(
             ["fc-cache", "-f", "-v"],
             stdout=subprocess.DEVNULL,
@@ -222,16 +229,23 @@ def siapkan_font_tipografi(cfg):
     if not (
         ok_utama and os.path.exists(path_utama) and os.path.getsize(path_utama) > 1000
     ):
-        raise RuntimeError(f"Font utama gagal disiapkan: {path_utama}")
+        raise RuntimeError(f"Failed to prepare primary font: {path_utama}")
 
     if not (
         ok_khusus
         and os.path.exists(path_khusus)
         and os.path.getsize(path_khusus) > 1000
     ):
-        raise RuntimeError(f"Font khusus gagal disiapkan: {path_khusus}")
+        raise RuntimeError(f"Failed to prepare accent font: {path_khusus}")
+
+    # Also prepare Mukta fonts for multi-language / Devanagari fallback
+    if "MUKTA" in daftar_font:
+        f_m_utama = daftar_font["MUKTA"]["utama"]
+        f_m_khusus = daftar_font["MUKTA"]["khusus"]
+        download_google_font(f_m_utama["url"], f_m_utama["file"], font_dir)
+        download_google_font(f_m_khusus["url"], f_m_khusus["file"], font_dir)
 
     register_fonts_for_libass(font_dir)
-    print(f"✅ Semua font berhasil disiapkan di: {font_dir}")
+    print(f"✅ All fonts prepared successfully in: {font_dir}")
 
 
