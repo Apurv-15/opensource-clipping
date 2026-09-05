@@ -93,9 +93,9 @@ def siapkan_glitch_video(rasio, cfg, video_encoder, source_h=1080, custom_dims=N
                 ).download([url_glitch])
                 use_downloaded = True
             else:
-                print("⚠️ url_glitch_video tidak diset, generate glitch sendiri...", flush=True)
+                print("⚠️ url_glitch_video is not set, generating glitch procedurally...", flush=True)
         except Exception as e:
-            print(f"⚠️ Download glitch gagal: {e}. Fallback ke generate sendiri...", flush=True)
+            print(f"⚠️ Glitch download failed: {e}. Falling back to procedural generation...", flush=True)
             # Clean up partial download
             if os.path.exists(glitch_raw):
                 os.remove(glitch_raw)
