@@ -116,9 +116,40 @@ def create_job(
             "clips": [],
             "error": None,
             "log": [],
+            "ai_diagnostics": None,
         }
         _persist()
     return job_id
+
+
+def append_log(
+    job_id: str,
+    message: str,
+    level: str = "info",
+    ai_diagnostics: Optional[dict] = None,
+) -> None:
+    """
+    Append a formatted, real-time log message to a job and optionally update AI diagnostics.
+    """
+    now = _now()
+    time_str = now.strftime("%H:%M:%S")
+    formatted_line = f"[{time_str}] [{level.upper()}] {message}"
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return
+        if "log" not in job or not isinstance(job["log"], list):
+            job["log"] = []
+        job["log"].append(formatted_line)
+        if len(job["log"]) > 1000:
+            job["log"] = job["log"][-1000:]
+        if ai_diagnostics is not None:
+            current_diag = job.get("ai_diagnostics") or {}
+            current_diag.update(ai_diagnostics)
+            current_diag["updated_at"] = now.isoformat()
+            job["ai_diagnostics"] = current_diag
+        job["updated_at"] = now
+        _persist()
 
 
 def get_job(job_id: str) -> Optional[dict]:
@@ -168,12 +199,16 @@ def update_progress(
         job = _jobs.get(job_id)
         if job is None:
             return
+        now = _now()
         job["progress"] = event
-        job["updated_at"] = _now()
+        job["updated_at"] = now
         # Append to log
-        job["log"].append(f"[{step}] {message}")
-        if len(job["log"]) > 500:
-            job["log"] = job["log"][-500:]
+        if "log" not in job or not isinstance(job["log"], list):
+            job["log"] = []
+        time_str = now.strftime("%H:%M:%S")
+        job["log"].append(f"[{time_str}] [{step.upper()}] {message}")
+        if len(job["log"]) > 1000:
+            job["log"] = job["log"][-1000:]
         _persist()
 
 
