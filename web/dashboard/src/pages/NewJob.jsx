@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { createJob, uploadVideo } from '../api'
+import { createJob, uploadVideo, fetchSettings } from '../api'
 
 function NewJob() {
   const navigate = useNavigate()
@@ -17,6 +17,8 @@ function NewJob() {
 
   // Config
   const [clips, setClips] = useState(7)
+  const [minClipDuration, setMinClipDuration] = useState(20)
+  const [maxClipDuration, setMaxClipDuration] = useState(90)
   const [ratio, setRatio] = useState('9:16')
   const [source, setSource] = useState('youtube')
   const [fontStyle, setFontStyle] = useState('HORMOZI')
@@ -52,13 +54,29 @@ function NewJob() {
   const [useHookGlitch, setUseHookGlitch] = useState(true)
   const [useBgm, setUseBgm] = useState(true)
   const [useKaraoke, setUseKaraoke] = useState(true)
+  const [textBehindPerson, setTextBehindPerson] = useState(false)
   const [useSplitScreen, setUseSplitScreen] = useState(false)
+  const [useDynamicSplit, setUseDynamicSplit] = useState(true)
+  const [splitAutoZoom, setSplitAutoZoom] = useState(true)
   const [useCameraSwitch, setUseCameraSwitch] = useState(false)
   const [noSubs, setNoSubs] = useState(false)
   const [hookV2, setHookV2] = useState(false)
   const [silenceTrim, setSilenceTrim] = useState(false)
   const [useDlpSubs, setUseDlpSubs] = useState(false)
   const [loadGeminiJson, setLoadGeminiJson] = useState(false)
+
+  // Load settings default on mount
+  useEffect(() => {
+    fetchSettings()
+      .then((settings) => {
+        if (!location.state?.reuseJob) {
+          if (settings?.default_min_clip_duration !== undefined) setMinClipDuration(settings.default_min_clip_duration)
+          if (settings?.default_max_clip_duration !== undefined) setMaxClipDuration(settings.default_max_clip_duration)
+          if (settings?.default_clips !== undefined) setClips(settings.default_clips)
+        }
+      })
+      .catch(() => {})
+  }, [location.state])
 
   // Load from location state if user clicked "Clone / Rerun"
   useEffect(() => {
@@ -72,6 +90,8 @@ function NewJob() {
       
       const config = reuseJob.config || {}
       if (config.clips !== undefined) setClips(config.clips)
+      if (config.min_clip_duration !== undefined) setMinClipDuration(config.min_clip_duration)
+      if (config.max_clip_duration !== undefined) setMaxClipDuration(config.max_clip_duration)
       if (config.ratio !== undefined) setRatio(config.ratio)
       if (config.font_style !== undefined) setFontStyle(config.font_style)
       if (config.whisper_model !== undefined) setWhisperModel(config.whisper_model)
@@ -115,26 +135,36 @@ function NewJob() {
     e.preventDefault()
     setError('')
 
-    if (mode === 'url' && !url.trim()) {
-      setError('Masukkan URL video terlebih dahulu.')
+    let cleanUrl = url.trim()
+    if (cleanUrl) {
+      cleanUrl = cleanUrl.replace(/^https?:\/+/i, 'https://')
+      if (cleanUrl.startsWith('www.')) {
+        cleanUrl = 'https://' + cleanUrl
+      }
+    }
+
+    if (mode === 'url' && !cleanUrl) {
+      setError('Please enter a video URL first.')
       return
     }
     if (mode === 'upload' && !uploadFilename) {
-      setError('Pilih atau upload file video terlebih dahulu.')
+      setError('Please select or upload a video file first.')
       return
     }
     if (mode === 'reuse' && !reuseJobId.trim()) {
-      setError('Job ID tidak boleh kosong')
+      setError('Job ID cannot be empty')
       return
     }
 
     setSubmitting(true)
     try {
       const payload = {
-        url: mode === 'url' ? url.trim() : null,
+        url: mode === 'url' ? cleanUrl : null,
         upload_filename: mode === 'upload' ? uploadFilename : null,
         source,
         clips: parseInt(clips, 10),
+        min_clip_duration: parseInt(minClipDuration, 10) || 20,
+        max_clip_duration: parseInt(maxClipDuration, 10) || 90,
         ratio,
         font_style: fontStyle,
         whisper_model: whisperModel,
@@ -147,7 +177,12 @@ function NewJob() {
         use_hook_glitch: useHookGlitch,
         use_auto_bgm: useBgm,
         use_karaoke_effect: useKaraoke,
+        text_behind_person: textBehindPerson,
         use_split_screen: useSplitScreen,
+        use_dynamic_split: useDynamicSplit,
+        split_auto_zoom: splitAutoZoom,
+        split_trigger: useDynamicSplit ? 'face' : 'diarization',
+        split_max_zoom: 1.5,
         use_camera_switch: useCameraSwitch,
         no_subs: noSubs,
         hook_v2: hookV2,
@@ -171,7 +206,7 @@ function NewJob() {
       <div className="page-header">
         <div>
           <h2>New Clipping Job</h2>
-          <p>Generate viral short clips dari video panjang</p>
+          <p>Generate viral short clips from long-form videos</p>
         </div>
       </div>
 
@@ -269,11 +304,11 @@ function NewJob() {
               <input
                 className="form-input"
                 type="text"
-                placeholder="Contoh: d20b47341e08"
+                placeholder="Example: d20b47341e08"
                 value={reuseJobId}
                 onChange={(e) => setReuseJobId(e.target.value)}
               />
-              <p className="form-hint" style={{ marginTop: '4px' }}>Bypass download dengan job ID lama. (Jika menggunakan Clone & Rerun, biarkan form ini terisi).</p>
+              <p className="form-hint" style={{ marginTop: '4px' }}>Bypass download using previous job ID. (If using Clone & Rerun, leave this field as is).</p>
             </div>
           )}
         </div>
@@ -311,11 +346,95 @@ function NewJob() {
             <div className="form-group">
               <label className="form-label">Font Style</label>
               <select className="form-select" value={fontStyle} onChange={(e) => setFontStyle(e.target.value)}>
+                <option value="MUKTA">Mukta (Hindi / Hinglish / Global)</option>
                 <option value="HORMOZI">Hormozi (Bold)</option>
                 <option value="DEFAULT">Default (Montserrat)</option>
                 <option value="STORYTELLER">Storyteller (Inter)</option>
                 <option value="CINEMATIC">Cinematic (Bebas Neue)</option>
               </select>
+            </div>
+
+            {/* Clip Duration Strategy */}
+            <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label className="form-label" style={{ marginBottom: 0 }}>⏱️ Clip Duration & Virality</label>
+                <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: 600, background: 'var(--accent-dim)', padding: '2px 8px', borderRadius: 'var(--radius-sm)' }}>
+                  {minClipDuration}s – {maxClipDuration}s
+                </span>
+              </div>
+
+              {/* Quick Presets */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px', marginBottom: '10px' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${minClipDuration === 20 && maxClipDuration === 60 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(20); setMaxClipDuration(60) }}
+                  style={{ fontSize: '11px', padding: '6px 8px', textAlign: 'left' }}
+                >
+                  ⚡ Viral Shorts (20–60s)
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${minClipDuration === 30 && maxClipDuration === 90 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(30); setMaxClipDuration(90) }}
+                  style={{ fontSize: '11px', padding: '6px 8px', textAlign: 'left' }}
+                >
+                  📈 Balanced Story (30–90s)
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${minClipDuration === 15 && maxClipDuration === 45 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(15); setMaxClipDuration(45) }}
+                  style={{ fontSize: '11px', padding: '6px 8px', textAlign: 'left' }}
+                >
+                  🔥 Snappy Hook (15–45s)
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${minClipDuration === 60 && maxClipDuration === 180 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(60); setMaxClipDuration(180) }}
+                  style={{ fontSize: '11px', padding: '6px 8px', textAlign: 'left' }}
+                >
+                  🎙️ Deep Dive (60–180s)
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Min Duration (sec)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="10"
+                    max="300"
+                    value={minClipDuration}
+                    onChange={(e) => setMinClipDuration(parseInt(e.target.value) || 10)}
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Max Duration (sec)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="15"
+                    max="600"
+                    value={maxClipDuration}
+                    onChange={(e) => setMaxClipDuration(parseInt(e.target.value) || 30)}
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                  />
+                </div>
+              </div>
+
+              {minClipDuration >= maxClipDuration && (
+                <p style={{ color: 'var(--warning)', fontSize: '11px', marginTop: '6px' }}>
+                  ⚠️ Min duration must be less than Max duration.
+                </p>
+              )}
+
+              <p className="form-hint" style={{ marginTop: '6px', fontSize: '11px' }}>
+                💡 Clips between 20–60 seconds achieve higher completion rates to boost virality on TikTok & Shorts.
+              </p>
             </div>
           </div>
 
@@ -374,11 +493,18 @@ function NewJob() {
           <div className="config-section">
             <h4>✨ Features & Modes</h4>
             <ToggleRow label="Split-Screen" desc="Podcast 2-speaker top/bottom split" checked={useSplitScreen} onChange={setUseSplitScreen} />
+            {useSplitScreen && (
+              <div style={{ paddingLeft: '24px', borderLeft: '2px solid var(--accent)', marginBottom: '10px' }}>
+                <ToggleRow label="Dynamic Split (Choppity-style)" desc="Auto switch full-screen (1 speaker) and split (2 speakers)" checked={useDynamicSplit} onChange={setUseDynamicSplit} />
+                <ToggleRow label="Smart Auto-Zoom" desc="Automatically zooms into speaker face to remove background distraction" checked={splitAutoZoom} onChange={setSplitAutoZoom} />
+              </div>
+            )}
             <ToggleRow label="Camera-Switch" desc="Auto switch camera to active speaker" checked={useCameraSwitch} onChange={setUseCameraSwitch} />
             <ToggleRow label="B-Roll Footage" desc="Insert stock footage" checked={useBroll} onChange={setUseBroll} />
             <ToggleRow label="Hook Glitch" desc="Glitch transition intro" checked={useHookGlitch} onChange={setUseHookGlitch} />
             <ToggleRow label="Background Music" desc="Auto BGM matching" checked={useBgm} onChange={setUseBgm} />
             <ToggleRow label="Karaoke Effect" desc="Word-by-word highlight" checked={useKaraoke} onChange={setUseKaraoke} />
+            <ToggleRow label="Text Behind Person (3D Depth)" desc="Sandwich kinetic text/subtitles behind the speaker using AI segmentation" checked={textBehindPerson} onChange={setTextBehindPerson} />
             <ToggleRow label="Hook V2" desc="Multi-hook intro clips" checked={hookV2} onChange={setHookV2} />
             <ToggleRow label="Silence Trim" desc="Remove dead air" checked={silenceTrim} onChange={setSilenceTrim} />
             <ToggleRow label="YouTube Subs" desc="Skip Whisper if available" checked={useDlpSubs} onChange={setUseDlpSubs} />
