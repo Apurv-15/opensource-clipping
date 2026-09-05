@@ -53,8 +53,11 @@ class _BoundingBox:
         self.height = h
 
 class _Detection:
-    def __init__(self, x, y, w, h):
+    def __init__(self, x, y, w, h, left_eye=None, right_eye=None, nose_tip=None):
         self.bounding_box = _BoundingBox(x, y, w, h)
+        self.left_eye = left_eye
+        self.right_eye = right_eye
+        self.nose_tip = nose_tip
 
 class _DetectionResult:
     def __init__(self, detections):
@@ -92,7 +95,11 @@ class YuNetDetectorWrapper:
         if faces is not None:
             for f in faces:
                 x, y, fw, fh = int(f[0]), int(f[1]), int(f[2]), int(f[3])
-                detections.append(_Detection(x, y, fw, fh))
+                # YuNet 5 landmarks: right_eye (f[4:6]), left_eye (f[6:8]), nose_tip (f[8:10])
+                r_eye = (float(f[4]), float(f[5])) if len(f) > 5 else None
+                l_eye = (float(f[6]), float(f[7])) if len(f) > 7 else None
+                nose = (float(f[8]), float(f[9])) if len(f) > 9 else None
+                detections.append(_Detection(x, y, fw, fh, left_eye=l_eye, right_eye=r_eye, nose_tip=nose))
         return _DetectionResult(detections)
 
 
@@ -175,7 +182,7 @@ def estimate_speaker_count_from_video(video_path: str, cfg) -> int:
             model_name = f"yolov{cfg.yolo_size}-face.pt"
             yolo_model = YOLO(model_name)
         except Exception as e:
-            print(f"⚠️ YOLO face detect gagal: {e}. Fallback ke Mediapipe.")
+            print(f"⚠️ YOLO face detect failed: {e}. Fallback to Mediapipe.")
             cfg.face_detector = "mediapipe"
 
     if cfg.face_detector != "yolo":
@@ -211,8 +218,8 @@ def estimate_speaker_count_from_video(video_path: str, cfg) -> int:
             if results and len(results[0].boxes) > 0:
                 faces_in_frame = len(results[0].boxes)
         else:
-            mp_image = mp_python.Image(
-                image_format=mp_python.ImageFormat.SRGB,
+            mp_image = mp.Image(
+                image_format=mp.ImageFormat.SRGB,
                 data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
             )
             results = detector.detect(mp_image)
@@ -223,7 +230,7 @@ def estimate_speaker_count_from_video(video_path: str, cfg) -> int:
             max_faces = faces_in_frame
 
     cap.release()
-    print(f"   ✅ Ditemukan maksimum {max_faces} wajah dalam satu frame.", flush=True)
+    print(f"   ✅ Found maximum {max_faces} faces in a single frame.", flush=True)
     return max(1, max_faces)
 
 
