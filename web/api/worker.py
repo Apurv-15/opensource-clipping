@@ -57,30 +57,30 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
         if provider == "sambanova" and not getattr(cfg, "api_key_sambanova", ""):
             store.set_error(
                 job_id,
-                "SAMBANOVA_API_KEY tidak ditemukan. Set via Settings atau .env file.",
+                "SAMBANOVA_API_KEY not found. Set it via Settings or .env file.",
             )
             return
         elif provider == "nvidia" and not getattr(cfg, "api_key_nvidia", ""):
             store.set_error(
                 job_id,
-                "NVIDIA_API_KEY tidak ditemukan. Set via Settings atau .env file.",
+                "NVIDIA_API_KEY not found. Set it via Settings or .env file.",
             )
             return
         elif provider == "gemini" and not getattr(cfg, "api_key_gemini", ""):
             store.set_error(
                 job_id,
-                "GOOGLE_API_KEY tidak ditemukan. Set via Settings atau .env file.",
+                "GOOGLE_API_KEY not found. Set it via Settings or .env file.",
             )
             return
 
         # --- Step 1: Download ---
-        store.set_status(job_id, JobStatus.DOWNLOADING)
+        store.set_status(JobStatus.DOWNLOADING if hasattr(JobStatus, "DOWNLOADING") else "downloading", job_id=job_id) if hasattr(store, "set_status_compat") else store.set_status(job_id, JobStatus.DOWNLOADING)
         store.update_progress(
             job_id,
             step="download",
             step_number=1,
             total_steps=7,
-            message="Mengunduh video...",
+            message="Downloading video...",
             percent=5.0,
         )
 
@@ -94,7 +94,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
             upload_path = os.path.join(project_root, "uploads", payload["upload_filename"])
             if not os.path.exists(upload_path):
-                store.set_error(job_id, f"File upload tidak ditemukan: {payload['upload_filename']}")
+                store.set_error(job_id, f"Uploaded file not found: {payload['upload_filename']}")
                 return
             cfg.file_video_asli = upload_path
             store.update_progress(
@@ -102,23 +102,23 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                 step="download",
                 step_number=1,
                 total_steps=7,
-                message="Menggunakan file upload.",
+                message="Using uploaded file.",
                 percent=14.0,
             )
         else:
             # If the video already exists on disk (e.g. on Retry or rerun), reuse it directly
             if os.path.exists(cfg.file_video_asli) and os.path.getsize(cfg.file_video_asli) > 0:
-                print(f"[Worker] File video asli sudah ada di {cfg.file_video_asli}. Bypass download.")
+                print(f"[Worker] Original video file already exists at {cfg.file_video_asli}. Bypassing download.")
                 store.update_progress(
                     job_id,
                     step="download",
                     step_number=1,
                     total_steps=7,
-                    message="Bypass download: menggunakan video yang sudah terunduh.",
+                    message="Bypassing download: using cached video file.",
                     percent=14.0,
                 )
             elif not cfg.url_youtube:
-                store.set_error(job_id, "Video asli tidak ditemukan di Job ID tersebut. File mungkin sudah terhapus.")
+                store.set_error(job_id, "Original video not found in that Job ID. The file may have been deleted.")
                 return
             else:
                 engine.download_video(
@@ -133,7 +133,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                     step="download",
                     step_number=1,
                     total_steps=7,
-                    message="Video berhasil diunduh.",
+                    message="Video downloaded successfully.",
                     percent=14.0,
                 )
 
@@ -144,7 +144,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="transcribe",
             step_number=2,
             total_steps=7,
-            message="Memulai transkripsi...",
+            message="Starting transcription...",
             percent=15.0,
         )
 
@@ -160,9 +160,9 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                     transkrip_lengkap = _cdata.get("transkrip_lengkap", "")
                     data_segmen = _cdata.get("data_segmen", [])
                 if transkrip_lengkap and data_segmen:
-                    print(f"[Worker] Menggunakan transkrip tersimpan dari {transcript_cache_path}.")
+                    print(f"[Worker] Using cached transcript from {transcript_cache_path}.")
             except Exception as _e:
-                print(f"[Worker] Gagal memuat transcript cache: {_e}")
+                print(f"[Worker] Failed to load transcript cache: {_e}")
 
         # Try YouTube JSON3 subs first if not loaded
         if not transkrip_lengkap or not data_segmen:
@@ -170,11 +170,14 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             file_json3 = json3_files[0] if json3_files else None
 
             if source_platform == "youtube" and getattr(cfg, "use_dlp_subs", False) and file_json3 and os.path.exists(file_json3):
+                store.append_log(job_id, "Extracting official JSON3 subtitles from YouTube...", level="info")
                 transkrip_lengkap, data_segmen = engine.parse_youtube_json3_subs(
                     file_json3, max_words_per_subtitle=cfg.max_kata_per_subtitle
                 )
+                store.append_log(job_id, f"YouTube subtitles processed successfully ({len(data_segmen)} word segments).", level="success")
 
         if not transkrip_lengkap or not data_segmen:
+            store.append_log(job_id, f"Running Faster-Whisper ({cfg.whisper_model}, device={cfg.whisper_device}, compute={cfg.whisper_compute_type})...", level="ai")
             transkrip_lengkap, data_segmen = engine.transcribe_video(
                 cfg.file_video_asli,
                 max_words_per_subtitle=cfg.max_kata_per_subtitle,
@@ -182,6 +185,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                 device=cfg.whisper_device,
                 compute_type=cfg.whisper_compute_type,
             )
+            store.append_log(job_id, f"Whisper transcription completed ({len(data_segmen)} word segments).", level="success")
             # Save for future retries
             try:
                 import json as _json
@@ -195,7 +199,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="transcribe",
             step_number=2,
             total_steps=7,
-            message="Transkripsi selesai.",
+            message="Transcription completed.",
             percent=35.0,
         )
 
@@ -206,8 +210,24 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="analyze",
             step_number=3,
             total_steps=7,
-            message="Menganalisis dengan AI...",
+            message="Analyzing video with AI...",
             percent=36.0,
+        )
+
+        def ai_logger(msg: str, level: str = "ai", ai_status: dict = None):
+            store.append_log(job_id, msg, level=level, ai_diagnostics=ai_status)
+
+        ai_provider = getattr(cfg, "ai_provider", "gemini")
+        chosen_model = getattr(cfg, f"{ai_provider}_model", getattr(cfg, "ai_model", "gemini-3.6-flash"))
+        ai_logger(
+            f"Analyzing viral moments with AI Provider: {ai_provider.upper()} ({chosen_model})...",
+            level="ai",
+            ai_status={
+                "provider": ai_provider,
+                "model": chosen_model,
+                "status": "querying",
+                "attempt": 1,
+            }
         )
 
         import json
@@ -215,10 +235,11 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
         gemini_output_path = os.path.join(cfg.outputs_dir, "gemini_response.json")
 
         if getattr(cfg, "load_gemini_json", False) and os.path.exists(gemini_output_path):
+            ai_logger("Loading cached AI response from disk (bypassing AI generation).", level="info")
             with open(gemini_output_path, "r", encoding="utf-8") as f:
                 hasil_json = json.load(f)
         else:
-            hasil_json = engine.analyze_with_ai(transkrip_lengkap, cfg)
+            hasil_json = engine.analyze_with_ai(transkrip_lengkap, cfg, logger_callback=ai_logger)
             with open(gemini_output_path, "w", encoding="utf-8") as f:
                 json.dump(hasil_json, f, indent=4, ensure_ascii=False)
 
@@ -227,7 +248,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="analyze",
             step_number=3,
             total_steps=7,
-            message=f"AI menemukan {len(hasil_json)} klip viral.",
+            message=f"AI discovered {len(hasil_json)} viral clips.",
             percent=50.0,
         )
 
@@ -243,7 +264,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="metadata",
             step_number=4,
             total_steps=7,
-            message="Metadata dinormalisasi.",
+            message="Metadata normalized.",
             percent=55.0,
         )
 
@@ -261,7 +282,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                     step="diarization",
                     step_number=5,
                     total_steps=7,
-                    message="Menjalankan speaker diarization...",
+                    message="Running speaker diarization...",
                     percent=56.0,
                 )
                 audio_path = cfg.file_video_asli.replace(".mp4", "_audio.wav")
@@ -271,9 +292,13 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                 max_spk = None
 
                 if str(num_speakers_arg).lower() == "auto":
-                    max_faces = studio.estimate_speaker_count_from_video(cfg.file_video_asli, cfg)
+                    try:
+                        max_faces = studio.estimate_speaker_count_from_video(cfg.file_video_asli, cfg)
+                        min_spk = max(1, max_faces)
+                    except Exception as e:
+                        print(f"⚠️ Visual speaker estimate fallback: {e}")
+                        min_spk = 2
                     num_speakers_arg = "auto"
-                    min_spk = max(1, max_faces)
                     max_spk = min_spk + 2
 
                 diarization_data = diarization_mod.run_diarization(
@@ -291,7 +316,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                     step="diarization",
                     step_number=5,
                     total_steps=7,
-                    message=f"Diarization gagal: {e}. Fallback ke mode biasa.",
+                    message=f"Diarization: {e}. Continuing with visual face tracking.",
                     percent=58.0,
                 )
                 diarization_data = None
@@ -303,7 +328,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="render",
             step_number=6,
             total_steps=7,
-            message="Menyiapkan rendering...",
+            message="Preparing rendering engine...",
             percent=60.0,
         )
 
@@ -344,7 +369,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                 step="render",
                 step_number=6,
                 total_steps=7,
-                message=f"Merender klip {clip_num}/{total_clips}...",
+                message=f"Rendering clip {clip_num}/{total_clips}...",
                 percent=60.0 + (35.0 * clip_num / total_clips),
             )
 
@@ -373,12 +398,13 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
         clips: list[ClipDetail] = []
         for entry in render_manifest:
             filename = os.path.basename(entry.get("output_file") or entry.get("video_path") or "")
+            title_en = entry.get("title_inggris") or entry.get("title") or entry.get("title_indonesia", "")
             clips.append(
                 ClipDetail(
                     rank=entry.get("rank", 0),
                     viral_score=entry.get("viral_score"),
-                    title=entry.get("title_indonesia", ""),
-                    title_en=entry.get("title_inggris", ""),
+                    title=title_en,
+                    title_en=title_en,
                     filename=filename,
                     duration=entry.get("duration"),
                     start_time=entry.get("start_time"),
@@ -394,7 +420,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="done",
             step_number=7,
             total_steps=7,
-            message=f"Selesai! {len(clips)} klip berhasil dirender.",
+            message=f"Completed! {len(clips)} clips rendered successfully.",
             percent=100.0,
         )
 
@@ -407,7 +433,7 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
             step="error",
             step_number=0,
             total_steps=7,
-            message=f"Pipeline gagal: {error_msg}",
+            message=f"Pipeline failed: {error_msg}",
             percent=0.0,
         )
         print(f"[Worker] Job {job_id} failed:\n{tb}", file=sys.stderr)
