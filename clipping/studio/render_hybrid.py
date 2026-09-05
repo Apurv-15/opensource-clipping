@@ -54,6 +54,12 @@ broll = _load_studio_internal_module("broll.py", "clipping_studio_broll")
 crop_center_broll = broll.crop_center_broll
 face_detection = _load_studio_internal_module("face_detection.py", "clipping_studio_face_detection")
 get_face_detector = face_detection.get_face_detector
+crop_stabilizer = _load_studio_internal_module("crop_stabilizer.py", "clipping_studio_crop_stabilizer")
+CropStabilizer = crop_stabilizer.CropStabilizer
+Landmarks = crop_stabilizer.Landmarks
+estimate_landmarks_from_bbox = crop_stabilizer.estimate_landmarks_from_bbox
+detect_visual_cuts = getattr(crop_stabilizer, "detect_visual_cuts", None)
+get_cut_timestamps = getattr(crop_stabilizer, "get_cut_timestamps", None)
 
 def buat_video_hybrid(
     input_video,
@@ -181,6 +187,7 @@ def buat_video_hybrid(
 
         face_box = None
 
+        lm = None
         if cfg.face_detector == "yolo":
             yolo_results = yolo_model(frame, verbose=False)
             if yolo_results and len(yolo_results[0].boxes) > 0:
@@ -191,6 +198,7 @@ def buat_video_hybrid(
                 center_x = x1 + (x2 - x1) / 2
                 center_y = y1 + (y2 - y1) / 2
                 face_box = (x1, y1, x2, y2)
+                lm = estimate_landmarks_from_bbox(x1, y1, x2 - x1, y2 - y1)
         else:
             results = detector.detect(
                 mp.Image(
@@ -200,10 +208,11 @@ def buat_video_hybrid(
             )
 
             if results.detections:
-                largest_face = max(
+                largest_det = max(
                     results.detections,
                     key=lambda d: d.bounding_box.width * d.bounding_box.height,
-                ).bounding_box
+                )
+                largest_face = largest_det.bounding_box
                 center_x = largest_face.origin_x + (largest_face.width / 2)
                 center_y = largest_face.origin_y + (largest_face.height / 2)
                 face_box = (
@@ -212,6 +221,19 @@ def buat_video_hybrid(
                     largest_face.origin_x + largest_face.width,
                     largest_face.origin_y + largest_face.height,
                 )
+                if getattr(largest_det, "left_eye", None) and getattr(largest_det, "right_eye", None):
+                    lm = Landmarks(
+                        left_eye=largest_det.left_eye,
+                        right_eye=largest_det.right_eye,
+                        nose_tip=largest_det.nose_tip or (center_x, center_y),
+                    )
+                else:
+                    lm = estimate_landmarks_from_bbox(
+                        largest_face.origin_x,
+                        largest_face.origin_y,
+                        largest_face.width,
+                        largest_face.height,
+                    )
 
         raw_data.append(
             {
@@ -219,6 +241,7 @@ def buat_video_hybrid(
                 "cx": center_x if face_box else default_cx,
                 "cy": center_y if face_box else default_cy,
                 "box": face_box,
+                "landmarks": lm,
             }
         )
 
@@ -231,37 +254,64 @@ def buat_video_hybrid(
 
         current_time += STEP_DETEKSI
 
-    # FASE 2: SMOOTH CAMERA
+    # FASE 2: SMOOTH CAMERA DENGAN CROP STABILIZER
     smooth_data = []
     if raw_data:
-        import statistics as _st
-        initial_cxs = [d["cx"] for d in raw_data[:5]]
-        initial_cys = [d["cy"] for d in raw_data[:5]]
-        cam_cx = _st.median(initial_cxs) if initial_cxs else raw_data[0]["cx"]
-        cam_cy = _st.median(initial_cys) if initial_cys else raw_data[0]["cy"]
-        
-        deadzone_px = crop_w * DEADZONE_RATIO
-        
-        # Consistent aggressive snapping for wide-to-tight camera cuts in standard clips
+        target_aspect = (w_part / h_part) if h_part else (9 / 16)
+        stabilizer = CropStabilizer(
+            frame_w=width,
+            frame_h=height,
+            target_aspect=target_aspect,
+            max_zoom=getattr(cfg, "max_zoom", 1.35),
+            margin_ratio=getattr(cfg, "crop_margin_ratio", 0.18),
+            smoothing_alpha=SMOOTH_FACTOR if SMOOTH_FACTOR else 0.15,
+        )
+
+        # Detect visual cuts in the clip window so camera transitions reset cleanly
+        cut_timestamps = set()
+        if detect_visual_cuts:
+            try:
+                cut_timestamps, _ = detect_visual_cuts(
+                    input_video,
+                    start_sec=start_clip,
+                    end_sec=end_clip,
+                    hist_corr_threshold=0.55,
+                )
+            except Exception:
+                cut_timestamps = set()
+
+        last_cx = None
         temp_snap = SNAP_THRESHOLD if SNAP_THRESHOLD < 0.1 else 0.08
         snap_px = width * temp_snap
 
         for d in raw_data:
-            face_cx = d["cx"]
-            face_cy = d["cy"]
+            lm = d.get("landmarks")
+            if not lm:
+                lm = estimate_landmarks_from_bbox(
+                    d["cx"] - 60, d["cy"] - 60, 120, 120
+                )
 
-            if abs(face_cx - cam_cx) > snap_px:
-                cam_cx = face_cx
-            else:
-                if face_cx > cam_cx + deadzone_px:
-                    cam_cx += (face_cx - (cam_cx + deadzone_px)) * SMOOTH_FACTOR
-                elif face_cx < cam_cx - deadzone_px:
-                    cam_cx += (face_cx - (cam_cx - deadzone_px)) * SMOOTH_FACTOR
+            is_cut = False
+            # Check position jump
+            if last_cx is not None and abs(d["cx"] - last_cx) > snap_px:
+                is_cut = True
+            # Check visual scene cuts within 1 detection step window
+            abs_t = start_clip + d["time"]
+            if any(abs(abs_t - ct) <= (STEP_DETEKSI * 1.1) for ct in cut_timestamps):
+                is_cut = True
 
-            # Vertical smoothing
-            cam_cy += (face_cy - cam_cy) * SMOOTH_FACTOR
+            last_cx = d["cx"]
 
-            smooth_data.append({"time": d["time"], "cx": cam_cx, "cy": cam_cy})
+            rect = stabilizer.compute(lm, is_cut=is_cut)
+            smooth_data.append({
+                "time": d["time"],
+                "cx": rect.x + rect.w / 2,
+                "cy": rect.y + rect.h / 2,
+                "crop_x": rect.x,
+                "crop_y": rect.y,
+                "crop_w": rect.w,
+                "crop_h": rect.h,
+            })
 
     def get_x(t):
         if not smooth_data:
@@ -289,6 +339,39 @@ def buat_video_hybrid(
             if raw_data[i]["time"] <= t <= raw_data[i + 1]["time"]:
                 return raw_data[i]["box"]
         return None
+
+    def _get_crop(t):
+        if not smooth_data:
+            return int((width - crop_w) // 2), int((height - crop_h) // 2), crop_w, crop_h
+        if t <= smooth_data[0]["time"]:
+            d0 = smooth_data[0]
+            return d0.get("crop_x", int(d0["cx"] - crop_w // 2)), d0.get("crop_y", int(d0["cy"] - crop_h // 2)), d0.get("crop_w", crop_w), d0.get("crop_h", crop_h)
+        if t >= smooth_data[-1]["time"]:
+            d_last = smooth_data[-1]
+            return d_last.get("crop_x", int(d_last["cx"] - crop_w // 2)), d_last.get("crop_y", int(d_last["cy"] - crop_h // 2)), d_last.get("crop_w", crop_w), d_last.get("crop_h", crop_h)
+
+        for i in range(len(smooth_data) - 1):
+            if smooth_data[i]["time"] <= t <= smooth_data[i + 1]["time"]:
+                d1, d2 = smooth_data[i], smooth_data[i + 1]
+                t1, t2 = d1["time"], d2["time"]
+                x1 = d1.get("crop_x", int(d1["cx"] - crop_w // 2))
+                x2 = d2.get("crop_x", int(d2["cx"] - crop_w // 2))
+                y1 = d1.get("crop_y", int(d1["cy"] - crop_h // 2))
+                y2 = d2.get("crop_y", int(d2["cy"] - crop_h // 2))
+                w1 = d1.get("crop_w", crop_w)
+                w2 = d2.get("crop_w", crop_w)
+                h1 = d1.get("crop_h", crop_h)
+                h2 = d2.get("crop_h", crop_h)
+                if t1 == t2:
+                    return x1, y1, w1, h1
+                frac = (t - t1) / (t2 - t1)
+                return (
+                    int(x1 + (x2 - x1) * frac),
+                    int(y1 + (y2 - y1) * frac),
+                    int(w1 + (w2 - w1) * frac),
+                    int(h1 + (h2 - h1) * frac),
+                )
+        return int((width - crop_w) // 2), int((height - crop_h) // 2), crop_w, crop_h
 
     def _get_pos(t):
         if not smooth_data:
@@ -358,11 +441,11 @@ def buat_video_hybrid(
 
             # --- 1. ALWAYS CREATE CROPPED OUTPUT ---
             if _is_vertical_ratio(rasio):
-                # Vertical/square ratios: face-tracked crop
-                cx_base, cy_base = _get_pos(t)
-                x1_crop = int(max(0, min(cx_base - crop_w // 2, width - crop_w)))
-                y1_crop = int(max(0, min(cy_base - crop_h // 2, height - crop_h)))
-                cropped = frame_utama[y1_crop : y1_crop + crop_h, x1_crop : x1_crop + crop_w]
+                # Vertical/square ratios: landmark-anchored & margin-constrained crop
+                x1_crop, y1_crop, cur_w, cur_h = _get_crop(t)
+                x1_crop = int(max(0, min(x1_crop, width - cur_w)))
+                y1_crop = int(max(0, min(y1_crop, height - cur_h)))
+                cropped = frame_utama[y1_crop : y1_crop + cur_h, x1_crop : x1_crop + cur_w]
                 frame_normal = _resize_frame(cropped, (base_out_w, base_out_h))
             else:
                 # 16:9 landscape: fit-to-height with letterbox (no stretch)
@@ -519,9 +602,9 @@ def buat_video_hybrid(
         return_code = writer.wait()
 
         if return_code != 0:
-            raise RuntimeError(f"FFmpeg writer gagal: {stderr_data[-1000:]}")
+            raise RuntimeError(f"FFmpeg writer failed: {stderr_data[-1000:]}")
 
-        print(f"✅ {label} selesai.", flush=True)
+        print(f"✅ {label} completed.", flush=True)
 
     finally:
         cap.release()
