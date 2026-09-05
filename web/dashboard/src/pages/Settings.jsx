@@ -48,10 +48,20 @@ function Settings() {
   const [hfToken, setHfToken] = useState('')
   const [nvidiaKey, setNvidiaKey] = useState('')
 
+  // Duration & Clipping rate defaults
+  const [minClipDuration, setMinClipDuration] = useState(20)
+  const [maxClipDuration, setMaxClipDuration] = useState(90)
+  const [defaultClips, setDefaultClips] = useState(7)
 
   useEffect(() => {
     fetchSettings()
-      .then(data => { setSettings(data); setLoading(false) })
+      .then(data => {
+        setSettings(data)
+        if (data?.default_min_clip_duration !== undefined) setMinClipDuration(data.default_min_clip_duration)
+        if (data?.default_max_clip_duration !== undefined) setMaxClipDuration(data.default_max_clip_duration)
+        if (data?.default_clips !== undefined) setDefaultClips(data.default_clips)
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
@@ -67,22 +77,40 @@ function Settings() {
       if (hfToken) payload.hf_token = hfToken
       if (nvidiaKey) payload.nvidia_api_key = nvidiaKey
 
+      const minDurNum = parseInt(minClipDuration, 10)
+      const maxDurNum = parseInt(maxClipDuration, 10)
+      const clipsNum = parseInt(defaultClips, 10)
+
+      if (!isNaN(minDurNum) && minDurNum !== settings?.default_min_clip_duration) {
+        payload.default_min_clip_duration = minDurNum
+      }
+      if (!isNaN(maxDurNum) && maxDurNum !== settings?.default_max_clip_duration) {
+        payload.default_max_clip_duration = maxDurNum
+      }
+      if (!isNaN(clipsNum) && clipsNum !== settings?.default_clips) {
+        payload.default_clips = clipsNum
+      }
+
       if (Object.keys(payload).length === 0) {
-        setMsg('Tidak ada perubahan')
+        setMsg('No changes made')
         setSaving(false)
         return
       }
 
       const updated = await updateSettings(payload)
       setSettings(updated)
+      if (updated?.default_min_clip_duration !== undefined) setMinClipDuration(updated.default_min_clip_duration)
+      if (updated?.default_max_clip_duration !== undefined) setMaxClipDuration(updated.default_max_clip_duration)
+      if (updated?.default_clips !== undefined) setDefaultClips(updated.default_clips)
+
       setGoogleKey('')
       setSambanovaKey('')
       setPexelsKey('')
       setHfToken('')
       setNvidiaKey('')
-      setMsg('✅ Settings berhasil diperbarui!')
+      setMsg('✅ Settings updated successfully!')
     } catch (err) {
-      setMsg('❌ Gagal menyimpan: ' + err.message)
+      setMsg('❌ Failed to save: ' + err.message)
     } finally {
       setSaving(false)
     }
@@ -95,7 +123,7 @@ function Settings() {
       <div className="page-header">
         <div>
           <h2>Settings</h2>
-          <p>Konfigurasi API keys dan default settings</p>
+          <p>Configure API keys and default clipping settings</p>
         </div>
       </div>
 
@@ -179,6 +207,104 @@ function Settings() {
             </div>
           </div>
 
+          {/* Clip Duration & Virality Strategy */}
+          <div className="settings-section">
+            <h3>⏱️ Clip Duration & Virality Rate</h3>
+            <p className="form-hint" style={{ marginBottom: '14px' }}>
+              Configure clip duration to optimize audience retention rate and algorithms for TikTok/Reels/Shorts. Shorter durations (20–60s) are proven to achieve significantly higher completion rates.
+            </p>
+
+            {/* Quick Presets */}
+            <div style={{ marginBottom: '16px' }}>
+              <label className="form-label" style={{ marginBottom: '8px' }}>Select Strategy Preset</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${minClipDuration === 20 && maxClipDuration === 60 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(20); setMaxClipDuration(60) }}
+                  style={{ textAlign: 'left', padding: '8px 10px', fontSize: '12px' }}
+                >
+                  <div style={{ fontWeight: '600' }}>⚡ Viral Shorts</div>
+                  <div style={{ opacity: 0.8, fontSize: '11px' }}>20s – 60s (Top Retention)</div>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${minClipDuration === 30 && maxClipDuration === 90 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(30); setMaxClipDuration(90) }}
+                  style={{ textAlign: 'left', padding: '8px 10px', fontSize: '12px' }}
+                >
+                  <div style={{ fontWeight: '600' }}>📈 Balanced Story</div>
+                  <div style={{ opacity: 0.8, fontSize: '11px' }}>30s – 90s (Reels / Flow)</div>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${minClipDuration === 15 && maxClipDuration === 45 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(15); setMaxClipDuration(45) }}
+                  style={{ textAlign: 'left', padding: '8px 10px', fontSize: '12px' }}
+                >
+                  <div style={{ fontWeight: '600' }}>🔥 Snappy Hook</div>
+                  <div style={{ opacity: 0.8, fontSize: '11px' }}>15s – 45s (Fast Punch)</div>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${minClipDuration === 60 && maxClipDuration === 180 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => { setMinClipDuration(60); setMaxClipDuration(180) }}
+                  style={{ textAlign: 'left', padding: '8px 10px', fontSize: '12px' }}
+                >
+                  <div style={{ fontWeight: '600' }}>🎙️ Deep Dive</div>
+                  <div style={{ opacity: 0.8, fontSize: '11px' }}>60s – 180s (Podcast)</div>
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Min Clip Duration (seconds)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="10"
+                  max="300"
+                  value={minClipDuration}
+                  onChange={(e) => setMinClipDuration(e.target.value)}
+                  placeholder="20"
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Max Clip Duration (seconds)</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="15"
+                  max="600"
+                  value={maxClipDuration}
+                  onChange={(e) => setMaxClipDuration(e.target.value)}
+                  placeholder="90"
+                />
+              </div>
+            </div>
+
+            {parseInt(minClipDuration, 10) >= parseInt(maxClipDuration, 10) && (
+              <p style={{ color: 'var(--warning)', fontSize: '12px', marginBottom: '12px' }}>
+                ⚠️ Min duration must be less than Max duration.
+              </p>
+            )}
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Default Target Number of Clips</label>
+              <input
+                className="form-input"
+                type="number"
+                min="1"
+                max="30"
+                value={defaultClips}
+                onChange={(e) => setDefaultClips(e.target.value)}
+                placeholder="7"
+              />
+              <p className="form-hint">Default number of candidate clips generated per video processing job.</p>
+            </div>
+          </div>
+
           {/* System Info */}
           <div className="settings-section">
             <h3>💻 System Info</h3>
@@ -200,6 +326,16 @@ function Settings() {
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Default Ratio</span>
                 <span>{settings?.default_ratio}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Target Clip Duration</span>
+                <span style={{ color: 'var(--accent)' }}>
+                  {settings?.default_min_clip_duration || 20}s – {settings?.default_max_clip_duration || 90}s
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Default Clip Count</span>
+                <span>{settings?.default_clips || 7} clips</span>
               </div>
             </div>
           </div>
