@@ -60,38 +60,38 @@ def validate_watermark_config(cfg):
     position = getattr(cfg, "watermark_position", DEFAULT_POSITION)
     if position not in VALID_POSITIONS:
         raise ValueError(
-            f"❌ --position '{position}' tidak valid. "
-            f"Pilihan: {', '.join(VALID_POSITIONS)}"
+            f"❌ --position '{position}' is invalid. "
+            f"Allowed choices: {', '.join(VALID_POSITIONS)}"
         )
 
     padding = getattr(cfg, "watermark_padding", DEFAULT_PADDING)
     if padding < 0:
         raise ValueError(
-            f"❌ --padding tidak boleh negatif, diberikan: {padding}"
+            f"❌ --padding cannot be negative, got: {padding}"
         )
 
     font_size = getattr(cfg, "watermark_font_size", DEFAULT_FONT_SIZE)
     if font_size < 0:
         raise ValueError(
-            f"❌ --watermark-font-size tidak boleh negatif, diberikan: {font_size}"
+            f"❌ --watermark-font-size cannot be negative, got: {font_size}"
         )
 
     if wm_image:
         if not os.path.exists(wm_image):
             raise ValueError(
-                f"❌ File watermark image tidak ditemukan: {wm_image}"
+                f"❌ Watermark image file not found: {wm_image}"
             )
         valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff")
         if not wm_image.lower().endswith(valid_exts):
             raise ValueError(
-                f"❌ Format file watermark tidak didukung: {wm_image}. "
-                f"Format yang didukung: {', '.join(valid_exts)}"
+                f"❌ Watermark file format not supported: {wm_image}. "
+                f"Supported formats: {', '.join(valid_exts)}"
             )
 
     scale = getattr(cfg, "watermark_scale", 15)
     if not (1 <= scale <= 100):
         raise ValueError(
-            f"❌ --watermark-scale harus antara 1-100, diberikan: {scale}"
+            f"❌ --watermark-scale must be between 1-100, got: {scale}"
         )
 
 
@@ -325,7 +325,7 @@ class ImageWatermarkRenderer(WatermarkRenderer):
                 # Convert ke RGBA (tambah alpha channel jika tidak ada)
                 self._source_rgba = img.convert("RGBA")
             except Exception as e:
-                print(f"⚠️ Gagal memuat watermark image: {self.image_path} — {e}")
+                print(f"⚠️ Failed to load watermark image: {self.image_path} — {e}")
                 self._source_rgba = None
 
     def _scale_image(self, source_rgba, target_h):
