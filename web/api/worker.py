@@ -53,7 +53,20 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
         )
 
         # Validate API key
-        if not cfg.api_key_gemini:
+        provider = getattr(cfg, "ai_provider", "gemini")
+        if provider == "sambanova" and not getattr(cfg, "api_key_sambanova", ""):
+            store.set_error(
+                job_id,
+                "SAMBANOVA_API_KEY tidak ditemukan. Set via Settings atau .env file.",
+            )
+            return
+        elif provider == "nvidia" and not getattr(cfg, "api_key_nvidia", ""):
+            store.set_error(
+                job_id,
+                "NVIDIA_API_KEY tidak ditemukan. Set via Settings atau .env file.",
+            )
+            return
+        elif provider == "gemini" and not getattr(cfg, "api_key_gemini", ""):
             store.set_error(
                 job_id,
                 "GOOGLE_API_KEY tidak ditemukan. Set via Settings atau .env file.",

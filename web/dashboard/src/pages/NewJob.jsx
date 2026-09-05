@@ -20,9 +20,9 @@ function NewJob() {
   const [ratio, setRatio] = useState('9:16')
   const [source, setSource] = useState('youtube')
   const [fontStyle, setFontStyle] = useState('HORMOZI')
-  const [whisperModel, setWhisperModel] = useState('large-v3')
-  const [whisperDevice, setWhisperDevice] = useState('cuda')
-  const [aiProvider, setAiProvider] = useState('gemini')
+  const [whisperModel, setWhisperModel] = useState('base')
+  const [whisperDevice, setWhisperDevice] = useState('cpu')
+  const [aiProvider, setAiProvider] = useState('sambanova')
 
   // Toggles
   const [useBroll, setUseBroll] = useState(true)
@@ -32,7 +32,7 @@ function NewJob() {
   const [noSubs, setNoSubs] = useState(false)
   const [hookV2, setHookV2] = useState(false)
   const [silenceTrim, setSilenceTrim] = useState(false)
-  const [useDlpSubs, setUseDlpSubs] = useState(false)
+  const [useDlpSubs, setUseDlpSubs] = useState(true)
   const [loadGeminiJson, setLoadGeminiJson] = useState(false)
 
   // Load from location state if user clicked "Clone / Rerun"
@@ -281,6 +281,7 @@ function NewJob() {
             <div className="form-group">
               <label className="form-label">AI Provider</label>
               <select className="form-select" value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
+                <option value="sambanova">SambaNova Cloud (Free Llama-3.3-70B)</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="nvidia">NVIDIA NIM</option>
               </select>

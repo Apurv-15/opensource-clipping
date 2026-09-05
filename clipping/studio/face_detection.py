@@ -43,29 +43,84 @@ build_ffmpeg_progress_cmd = _ffmpeg_utils.build_ffmpeg_progress_cmd
 run_ffmpeg_with_progress = _ffmpeg_utils.run_ffmpeg_with_progress
 
 
+import platform
+
+class _BoundingBox:
+    def __init__(self, x, y, w, h):
+        self.origin_x = x
+        self.origin_y = y
+        self.width = w
+        self.height = h
+
+class _Detection:
+    def __init__(self, x, y, w, h):
+        self.bounding_box = _BoundingBox(x, y, w, h)
+
+class _DetectionResult:
+    def __init__(self, detections):
+        self.detections = detections
+
+class YuNetDetectorWrapper:
+    def __init__(self, model_path="face_detection_yunet.onnx"):
+        if not os.path.isabs(model_path):
+            base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            cand = os.path.join(base, model_path)
+            if os.path.exists(cand):
+                model_path = cand
+        self.detector = cv2.FaceDetectorYN.create(
+            model=model_path,
+            config="",
+            input_size=(640, 480),
+            score_threshold=0.5,
+        )
+
+    def detect(self, mp_image):
+        if hasattr(mp_image, "numpy_view"):
+            img = mp_image.numpy_view()
+        elif hasattr(mp_image, "data"):
+            img = mp_image.data
+        else:
+            img = mp_image
+        h, w = img.shape[:2]
+        self.detector.setInputSize((w, h))
+        if len(img.shape) == 3 and img.shape[2] == 3:
+            bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        else:
+            bgr = img
+        _, faces = self.detector.detect(bgr)
+        detections = []
+        if faces is not None:
+            for f in faces:
+                x, y, fw, fh = int(f[0]), int(f[1]), int(f[2]), int(f[3])
+                detections.append(_Detection(x, y, fw, fh))
+        return _DetectionResult(detections)
+
+
 _FACE_DETECTOR = None
 
 def get_face_detector(cfg):
     """
-    Create or reuse a singleton MediaPipe face detector instance.
-
-    Args:
-        cfg: Runtime config that includes model path and model URL.
-
-    Returns:
-        mp_vision.FaceDetector: Initialized MediaPipe face detector singleton.
-
-    Side Effects:
-        Downloads the Mediapipe face detection model from the internet if it doesn't exist locally.
-        Initializes a global `_FACE_DETECTOR` variable.
-
-    Raises:
-        urllib.error.URLError: If the model download fails.
-        Exception: If Mediapipe initialization fails due to invalid model format.
+    Create or reuse a singleton face detector instance.
+    Uses native OpenCV YuNet on macOS to prevent MediaPipe Metal crashes,
+    falling back to MediaPipe Tasks where supported.
     """
     global _FACE_DETECTOR
 
-    if _FACE_DETECTOR is None:
+    if _FACE_DETECTOR is not None:
+        return _FACE_DETECTOR
+
+    # On macOS, MediaPipe DrishtiMetalHelper causes a fatal C++ abort on Apple Silicon.
+    # Use native OpenCV YuNet for 100% stability.
+    yunet_cand = getattr(cfg, "file_yunet_model", "face_detection_yunet.onnx")
+    if not os.path.isabs(yunet_cand):
+        yunet_cand = os.path.join(getattr(cfg, "base_dir", os.getcwd()), yunet_cand)
+
+    if platform.system() == "Darwin" and os.path.exists(yunet_cand):
+        print("   🛡️ Using OpenCV YuNet neural face detector (macOS native)...", flush=True)
+        _FACE_DETECTOR = YuNetDetectorWrapper(yunet_cand)
+        return _FACE_DETECTOR
+
+    try:
         if not os.path.exists(cfg.file_mediapipe_model):
             urllib.request.urlretrieve(
                 cfg.url_mediapipe_model, cfg.file_mediapipe_model
@@ -78,6 +133,9 @@ def get_face_detector(cfg):
                 min_detection_confidence=0.5,
             )
         )
+    except Exception as e:
+        print(f"   ⚠️ MediaPipe face detector failed ({e}). Falling back to YuNet.", flush=True)
+        _FACE_DETECTOR = YuNetDetectorWrapper(yunet_cand)
 
     return _FACE_DETECTOR
 

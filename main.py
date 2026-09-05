@@ -41,7 +41,16 @@ def main():
     # Lazy import so --help works without heavy deps
     from clipping.runner import run_pipeline
 
-    if not cfg.api_key_gemini:
+    provider = getattr(cfg, "ai_provider", "gemini")
+    if provider == "sambanova" and not getattr(cfg, "api_key_sambanova", ""):
+        print("❌ ERROR: SAMBANOVA_API_KEY environment variable tidak ditemukan.")
+        print("   Set via: export SAMBANOVA_API_KEY='your-key' atau buat file .env")
+        sys.exit(1)
+    elif provider == "nvidia" and not getattr(cfg, "api_key_nvidia", ""):
+        print("❌ ERROR: NVIDIA_API_KEY environment variable tidak ditemukan.")
+        print("   Set via: export NVIDIA_API_KEY='your-key' atau buat file .env")
+        sys.exit(1)
+    elif provider == "gemini" and not getattr(cfg, "api_key_gemini", ""):
         print("❌ ERROR: GOOGLE_API_KEY environment variable tidak ditemukan.")
         print("   Set via: export GOOGLE_API_KEY='your-key' atau buat file .env")
         sys.exit(1)

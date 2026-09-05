@@ -1,7 +1,7 @@
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
 env/
 venv/
@@ -9,15 +9,41 @@ venv/
 env.bak/
 venv.bak/
 
-# Project directories
+# Project directories & generated assets
 uploads/
 outputs/
 custom_fonts/
+*.mp4
+*.ts
+*.ass
+*.jpg
+*.jpeg
+*.png
+*.tflite
+*.pt
+*.onnx
+*.ttf
+render_manifest*.json
+metadata_preview.json
+
+# Git & Secrets
 .git/
+.gitignore
 .env
+.env.*
+credentials.json
+youtube_token.json
+.credentials/
 
 # Node
 node_modules/
 dist/
 web/dashboard/node_modules/
 web/dashboard/dist/
+
+# OS & Caches
+.cache/
+.local/
+.pytest_cache/
+.ruff_cache/
+.DS_Store

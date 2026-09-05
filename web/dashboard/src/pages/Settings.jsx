@@ -42,11 +42,12 @@ function Settings() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // Form fields
   const [googleKey, setGoogleKey] = useState('')
+  const [sambanovaKey, setSambanovaKey] = useState('')
   const [pexelsKey, setPexelsKey] = useState('')
   const [hfToken, setHfToken] = useState('')
   const [nvidiaKey, setNvidiaKey] = useState('')
+
 
   useEffect(() => {
     fetchSettings()
@@ -61,6 +62,7 @@ function Settings() {
     try {
       const payload = {}
       if (googleKey) payload.google_api_key = googleKey
+      if (sambanovaKey) payload.sambanova_api_key = sambanovaKey
       if (pexelsKey) payload.pexels_api_key = pexelsKey
       if (hfToken) payload.hf_token = hfToken
       if (nvidiaKey) payload.nvidia_api_key = nvidiaKey
@@ -74,6 +76,7 @@ function Settings() {
       const updated = await updateSettings(payload)
       setSettings(updated)
       setGoogleKey('')
+      setSambanovaKey('')
       setPexelsKey('')
       setHfToken('')
       setNvidiaKey('')
@@ -144,6 +147,22 @@ function Settings() {
                 isSet={settings?.hf_token_set}
               />
               <p className="form-hint">Required for speaker diarization</p>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                SambaNova API Key (Free)
+                {settings?.sambanova_api_key_set && <span style={{ color: 'var(--success)', marginLeft: '8px' }}>✅ Set</span>}
+              </label>
+              <PasswordInput
+                value={sambanovaKey}
+                onChange={setSambanovaKey}
+                placeholder="Paste your free SambaNova API key"
+                isSet={settings?.sambanova_api_key_set}
+              />
+              <p className="form-hint">
+                <a href="https://cloud.sambanova.ai/" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>Get free key →</a>
+              </p>
             </div>
 
             <div className="form-group">

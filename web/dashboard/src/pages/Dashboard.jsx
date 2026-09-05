@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchJobs, fetchHealth } from '../api'
+import { fetchJobs, fetchHealth, deleteJob, retryJob } from '../api'
 
 const STATUS_LABELS = {
   queued: 'Queued',
@@ -39,6 +39,30 @@ function Dashboard() {
       console.error('Failed to load dashboard:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDelete = async (e, jobId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!window.confirm(`Are you sure you want to delete job #${jobId}?`)) return
+    try {
+      await deleteJob(jobId)
+      setJobs(prev => prev.filter(j => j.id !== jobId))
+    } catch (err) {
+      alert('Failed to delete job: ' + err.message)
+    }
+  }
+
+  const handleRetry = async (e, jobId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!window.confirm(`Retry job #${jobId}?`)) return
+    try {
+      await retryJob(jobId)
+      loadData()
+    } catch (err) {
+      alert('Failed to retry job: ' + err.message)
     }
   }
 
@@ -122,10 +146,30 @@ function Dashboard() {
                   {job.error && <span style={{ color: 'var(--error)' }}>⚠ Error</span>}
                 </div>
               </div>
-              <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className={`badge badge-${job.status}`}>
                   {STATUS_LABELS[job.status] || job.status}
                 </span>
+                {['completed', 'failed', 'cancelled'].includes(job.status) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '6px' }}
+                    title="Retry job"
+                    onClick={(e) => handleRetry(e, job.id)}
+                  >
+                    🔄
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '6px' }}
+                  title="Delete job"
+                  onClick={(e) => handleDelete(e, job.id)}
+                >
+                  🗑️
+                </button>
               </div>
             </Link>
           ))}

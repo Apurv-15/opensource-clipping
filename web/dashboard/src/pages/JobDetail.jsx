@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { fetchJob, deleteJob, createSSEConnection } from '../api'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { fetchJob, deleteJob, retryJob, createSSEConnection } from '../api'
 
 const STEPS = [
   { key: 'download', label: 'Download' },
@@ -13,8 +13,38 @@ const STEPS = [
 
 function JobDetail() {
   const { jobId } = useParams()
+  const navigate = useNavigate()
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Are you sure you want to delete job #${jobId}?`)) return
+    setDeleting(true)
+    try {
+      await deleteJob(jobId)
+      navigate('/')
+    } catch (err) {
+      alert('Failed to delete job: ' + err.message)
+      setDeleting(false)
+    }
+  }
+
+  const handleRetry = async () => {
+    if (!window.confirm(`Retry job #${jobId} now?`)) return
+    setRetrying(true)
+    try {
+      const updated = await retryJob(jobId)
+      setJob(updated)
+      setRetryCount(c => c + 1)
+    } catch (err) {
+      alert('Failed to retry job: ' + err.message)
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   useEffect(() => {
     let sse = null
@@ -43,7 +73,7 @@ function JobDetail() {
 
     load()
     return () => { if (sse) sse.close() }
-  }, [jobId])
+  }, [jobId, retryCount])
 
   // Also poll for updates
   useEffect(() => {
@@ -58,7 +88,7 @@ function JobDetail() {
       } catch {}
     }, 3000)
     return () => clearInterval(interval)
-  }, [jobId, job?.status])
+  }, [jobId, job?.status, retryCount])
 
   if (loading) return <div className="empty-state"><div className="spinner"></div></div>
   if (!job) return <div className="empty-state"><h3>Job not found</h3></div>
@@ -75,7 +105,24 @@ function JobDetail() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <span className={`badge badge-${job.status}`}>{job.status}</span>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={retrying || !['completed', 'failed', 'cancelled'].includes(job.status)}
+            title={['completed', 'failed', 'cancelled'].includes(job.status) ? "Retry this job" : "Job is currently running"}
+            onClick={handleRetry}
+          >
+            {retrying ? 'Retrying...' : '🔄 Retry'}
+          </button>
           <Link to="/new" state={{ reuseJob: job }} className="btn btn-secondary btn-sm">🔁 Clone & Rerun</Link>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            disabled={deleting}
+            onClick={handleDelete}
+          >
+            {deleting ? 'Deleting...' : '🗑️ Delete'}
+          </button>
           <Link to="/" className="btn btn-ghost btn-sm">← Back</Link>
         </div>
       </div>

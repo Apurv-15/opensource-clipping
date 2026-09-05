@@ -219,10 +219,44 @@ SCRIPT VOICE-OVER (Hanya teks yang dibacakan, tanpa tanda kutip di awal/akhir):"
     return prompt
 
 def generate_commentary_script(transcript_snippet: str, cfg, style="analysis", language="id", length="short") -> str:
-    """Generate commentary script using Gemini AI."""
+    """Generate commentary script using configured AI provider (SambaNova or Gemini)."""
+    provider = getattr(cfg, "ai_provider", "gemini")
+    
+    # --- SambaNova Provider ---
+    if provider == "sambanova" and getattr(cfg, "api_key_sambanova", None):
+        try:
+            from openai import OpenAI
+            model = getattr(cfg, "sambanova_model", "Meta-Llama-3.3-70B-Instruct")
+            print(f"   🧠 Generating {style} commentary script via SambaNova ({model}, {language}, {length})...")
+            
+            client = OpenAI(
+                base_url="https://api.sambanova.ai/v1",
+                api_key=cfg.api_key_sambanova
+            )
+            prompt = get_commentary_prompt(transcript_snippet, style, language, length)
+            
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a professional video narrator. Return ONLY the spoken narration text. No quotes, no preamble, no markdown formatting."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=2048,
+            )
+            text = completion.choices[0].message.content or ""
+            if text:
+                script = text.strip().strip('"').strip()
+                print(f"   ✅ Script generated via SambaNova ({len(script)} chars)")
+                return script
+        except Exception as e:
+            print(f"   ⚠️ SambaNova commentary generation failed: {e}. Trying Gemini fallback...")
+
+    # --- Gemini Provider ---
     print(f"   🧠 Generating {style} commentary script via Gemini ({language}, {length})...")
     
-    api_key = cfg.api_key_gemini
+    api_key = getattr(cfg, "api_key_gemini", None)
     if not api_key:
         raise ValueError("GOOGLE_API_KEY tidak ditemukan di environment atau config.")
 

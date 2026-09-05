@@ -135,6 +135,30 @@ async def delete_job(job_id: str) -> dict:
     return {"message": "Job deleted", "id": job_id}
 
 
+@router.post("/{job_id}/retry")
+async def retry_job(job_id: str) -> JobResponse:
+    """Retry an existing job using its saved configuration."""
+    job = store.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    payload = dict(job.get("config", {}))
+
+    # Reset job fields for re-run
+    store.update_job(
+        job_id,
+        status=JobStatus.QUEUED.value,
+        error=None,
+        progress=None,
+        clips=[],
+        log=[],
+    )
+
+    await worker.submit_job(job_id, payload)
+    updated_job = store.get_job(job_id)
+    return _job_to_response(updated_job)
+
+
 @router.get("/{job_id}/status")
 async def job_status_sse(job_id: str):
     """

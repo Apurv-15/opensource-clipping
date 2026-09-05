@@ -189,11 +189,13 @@ def build_config_from_payload(
         bgm_dir=BGM_DIR,
         # Whisper
         use_dlp_subs=payload.get("use_dlp_subs", False),
-        whisper_model=payload.get("whisper_model", "large-v3"),
-        whisper_device=payload.get("whisper_device", "cuda"),
-        whisper_compute_type=payload.get("whisper_compute_type", "float16"),
+        whisper_model=payload.get("whisper_model", "base"),
+        whisper_device=payload.get("whisper_device", "cpu"),
+        whisper_compute_type=payload.get("whisper_compute_type", "int8" if payload.get("whisper_device") != "cuda" else "float16"),
         # AI
         ai_provider=ai_provider,
+        api_key_sambanova=env.get("SAMBANOVA_API_KEY", os.environ.get("SAMBANOVA_API_KEY", "")),
+        sambanova_model=payload.get("sambanova_model", os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct")),
         api_key_nvidia=env.get("NVIDIA_API_KEY", os.environ.get("NVIDIA_API_KEY", "")),
         nvidia_model=payload.get("nvidia_model", "deepseek-ai/deepseek-v4-pro"),
         gemini_model=payload.get("gemini_model", "gemini-3-flash-preview"),

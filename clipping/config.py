@@ -151,10 +151,12 @@ VIDEO_SCALE_ALGO = "lanczos"
 RENDER_OUTPUT_HEIGHT = 1080
 
 # AI Provider
-AI_PROVIDER = "gemini"
+AI_PROVIDER = os.environ.get("DEFAULT_AI_PROVIDER", "sambanova" if os.environ.get("SAMBANOVA_API_KEY") else "gemini")
+SAMBANOVA_MODEL = os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct")
 NVIDIA_MODEL = "deepseek-ai/deepseek-v4-pro"
 GEMINI_MODEL = "gemini-3-flash-preview"
 GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+
 
 
 # ==============================================================================
@@ -409,9 +411,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--ai-provider",
-        choices=["gemini", "nvidia"],
+        choices=["gemini", "nvidia", "sambanova"],
         default=AI_PROVIDER,
-        help="AI provider for video analysis (gemini or nvidia).",
+        help="AI provider for video analysis (gemini, nvidia, or sambanova).",
+    )
+    p.add_argument(
+        "--sambanova-model",
+        default=SAMBANOVA_MODEL,
+        help="Model name for SambaNova Cloud (e.g. Meta-Llama-3.3-70B-Instruct, DeepSeek-R1, Qwen2.5-72B-Instruct).",
     )
     p.add_argument(
         "--nvidia-model",
@@ -861,6 +868,8 @@ def build_config(argv: list[str] | None = None) -> SimpleNamespace:
         whisper_compute_type=args.whisper_compute_type,
         # AI
         ai_provider=args.ai_provider,
+        api_key_sambanova=os.environ.get("SAMBANOVA_API_KEY", ""),
+        sambanova_model=getattr(args, "sambanova_model", SAMBANOVA_MODEL),
         api_key_nvidia=os.environ.get("NVIDIA_API_KEY", ""),
         nvidia_model=args.nvidia_model,
         gemini_model=args.gemini_model,

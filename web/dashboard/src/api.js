@@ -31,6 +31,15 @@ export async function deleteJob(jobId) {
   return res.json()
 }
 
+export async function retryJob(jobId) {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/retry`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || 'Failed to retry job')
+  }
+  return res.json()
+}
+
 export async function uploadVideo(file, onProgress) {
   const formData = new FormData()
   formData.append('file', file)

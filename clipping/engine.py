@@ -371,7 +371,14 @@ def transcribe_video(
         " — unduhan pertama kali bisa memakan waktu...",
         flush=True,
     )
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    try:
+        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    except Exception as e:
+        if device == "cuda" or "cuda" in str(e).lower():
+            print(f"      ⚠️ CUDA tidak tersedia di sistem ini ({e}). Beralih otomatis ke CPU (int8)...", flush=True)
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        else:
+            raise e
 
     print("      ⏳ Mendekode audio & mengekstrak fitur (belum ada output)...", flush=True)
     segments, info = model.transcribe(video_path, beam_size=5, word_timestamps=True)
@@ -1102,11 +1109,77 @@ def analyze_with_nvidia(transkrip_lengkap: str, cfg) -> list[dict]:
     return hasil
 
 
+def analyze_with_sambanova(transkrip_lengkap: str, cfg) -> list[dict]:
+    """Analyze transcript using SambaNova Cloud API (OpenAI compatible)."""
+    from openai import OpenAI
+    
+    model = getattr(cfg, "sambanova_model", "Meta-Llama-3.3-70B-Instruct")
+    print(f"[3/3] Menganalisis Top {cfg.jumlah_clip} momen menggunakan SambaNova ({model})...")
+    
+    if not getattr(cfg, "api_key_sambanova", None):
+        raise ValueError("SAMBANOVA_API_KEY tidak ditemukan di environment.")
+
+    client = OpenAI(
+        base_url="https://api.sambanova.ai/v1",
+        api_key=cfg.api_key_sambanova
+    )
+    
+    prompt = get_analysis_prompt(transkrip_lengkap, cfg.jumlah_clip, cfg.durasi_hook, cfg=cfg)
+    
+    system_msg = (
+        "You are a professional video editor and strategist. "
+        "You MUST output valid, parseable raw JSON only. "
+        "Return a JSON array containing objects corresponding to each clip. "
+        "Do NOT include conversational text, markdown explanations, or reasoning."
+    )
+    
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3,
+        top_p=0.9,
+        max_tokens=8192,
+    )
+    
+    content = completion.choices[0].message.content or ""
+    
+    if "```" in content:
+        content = re.sub(r"```(json)?", "", content).strip()
+        content = content.split("```")[0].strip()
+        
+    hasil = json.loads(content)
+    
+    if isinstance(hasil, dict):
+        for key in ["clips", "data", "highlights", "moments"]:
+            if key in hasil and isinstance(hasil[key], list):
+                hasil = hasil[key]
+                break
+                
+    if not isinstance(hasil, list):
+        if isinstance(hasil, dict):
+            return [hasil]
+        raise ValueError(f"Provider SambaNova mengembalikan format non-list/dict: {type(hasil)}")
+        
+    return hasil
+
+
 def analyze_with_ai(transkrip_lengkap: str, cfg) -> list[dict]:
     """Dispatcher for AI analysis based on provider."""
     provider = getattr(cfg, "ai_provider", "gemini")
     
-    if provider == "nvidia":
+    if provider == "sambanova":
+        if not getattr(cfg, "api_key_sambanova", None):
+            print("⚠️ SAMBANOVA_API_KEY tidak ditemukan! Mencoba fallback ke Gemini...")
+        else:
+            try:
+                return analyze_with_sambanova(transkrip_lengkap, cfg)
+            except Exception as e:
+                print(f"⚠️ SambaNova API gagal: {e}. Fallback ke Gemini...")
+
+    elif provider == "nvidia":
         if not cfg.api_key_nvidia:
             print("⚠️ NVIDIA_API_KEY tidak ditemukan! Mencoba fallback ke Gemini...")
         else:
