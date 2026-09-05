@@ -198,7 +198,27 @@ def get_commentary_prompt(transcript_snippet: str, style: str, language: str, le
         elif length == "long":
             length_instruction = "medium duration (5-7 sentences, around 40-60 seconds when spoken)"
 
-    prompt = f"""Kamu adalah seorang narator/komentator video pendek (Shorts/TikTok/Reels).
+    if language == "en":
+        prompt = f"""You are a professional short-form video narrator/commentator (Shorts/TikTok/Reels).
+Your task is to write a voice-over script of {length_instruction} 
+based on the following video transcript.
+
+{lang_instruction}
+{chosen_style}
+
+RULES:
+1. DO NOT simply repeat the transcript. Add your own unique value, opinion, or context.
+2. DO NOT use generic greetings like "Hey guys" or generic sign-offs like "Don't forget to subscribe". Jump straight into the core message.
+3. DO NOT include meta-commentary, markdown formatting, or stage directions. OUTPUT ONLY THE SPOKEN SCRIPT TEXT.
+
+CLIP TRANSCRIPT:
+\"\"\"
+{transcript_snippet}
+\"\"\"
+
+VOICE-OVER SCRIPT (Only the spoken text, no quotes):"""
+    else:
+        prompt = f"""Kamu adalah seorang narator/komentator video pendek (Shorts/TikTok/Reels).
 Tugasmu adalah membuat script voice-over {length_instruction} 
 berdasarkan transkrip video berikut.
 
@@ -258,7 +278,7 @@ def generate_commentary_script(transcript_snippet: str, cfg, style="analysis", l
     
     api_key = getattr(cfg, "api_key_gemini", None)
     if not api_key:
-        raise ValueError("GOOGLE_API_KEY tidak ditemukan di environment atau config.")
+        raise ValueError("GOOGLE_API_KEY not found in environment or config.")
 
     client = genai.Client(api_key=api_key)
     prompt = get_commentary_prompt(transcript_snippet, style, language, length)
