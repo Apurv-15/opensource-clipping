@@ -55,12 +55,28 @@ def _job_to_response(job: dict) -> JobResponse:
         clips=clip_list,
         error=job.get("error"),
         log=job.get("log", []),
+        ai_diagnostics=job.get("ai_diagnostics"),
     )
+
+
+def _sanitize_url(url: str | None) -> str | None:
+    """Normalize user-entered URLs (e.g. fix 'https:/www...' or 'https:///www...')."""
+    if not url:
+        return url
+    import re
+    cleaned = url.strip()
+    cleaned = re.sub(r"^https?:/+", "https://", cleaned)
+    if cleaned.startswith("www."):
+        cleaned = "https://" + cleaned
+    return cleaned
 
 
 @router.post("", status_code=201)
 async def create_job(req: JobCreateRequest) -> JobResponse:
     """Create a new clipping job and submit it to the background queue."""
+    if req.url:
+        req.url = _sanitize_url(req.url)
+
     if not req.url and not req.upload_filename and not req.reuse_job_id:
         raise HTTPException(
             status_code=400,
@@ -203,6 +219,8 @@ async def job_status_sse(job_id: str):
                 "status": status,
                 "progress": progress_data,
                 "error": current_job.get("error"),
+                "log": current_job.get("log", []),
+                "ai_diagnostics": current_job.get("ai_diagnostics"),
             }
 
             # Only send if something changed
@@ -226,11 +244,13 @@ async def job_status_sse(job_id: str):
                         "type": "completed",
                         "status": status,
                         "clips": clip_data,
+                        "log": current_job.get("log", []),
+                        "ai_diagnostics": current_job.get("ai_diagnostics"),
                     }
                     yield f"data: {json.dumps(final_event, default=str)}\n\n"
                 break
 
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.35)
 
     return StreamingResponse(
         event_stream(),
