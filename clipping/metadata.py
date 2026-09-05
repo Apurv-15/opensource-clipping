@@ -112,7 +112,7 @@ def normalize_and_validate(hasil_json: list[dict]) -> list[dict]:
     semua_warning = []
     for item in hasil_json:
         if not isinstance(item, dict):
-            print(f"⚠️ Melewati item metadata yang tidak valid (bukan dict): {type(item)}")
+            print(f"⚠️ Skipping invalid metadata item (not a dict): {type(item)}")
             continue
 
         # 1. FLATTENING: If model put everything in a "metadata" key, bring it up
