@@ -24,7 +24,7 @@ elif [ -d "/usr/local/bin" ]; then
     export PATH="/usr/local/bin:$PATH"
 fi
 
-# 1. Verify FFmpeg
+# 1. Verify FFmpeg & Aria2
 if command -v ffmpeg &> /dev/null; then
     FFMPEG_VER=$(ffmpeg -version 2>/dev/null | head -n 1 | awk '{print $3}')
     echo -e "${GREEN}[✓] FFmpeg installed:${NC} v${FFMPEG_VER}"
@@ -34,6 +34,15 @@ else
         brew install ffmpeg
     else
         echo -e "${YELLOW}[!] Warning: Homebrew not found. Please install ffmpeg manually.${NC}"
+    fi
+fi
+
+if command -v aria2c &> /dev/null; then
+    echo -e "${GREEN}[✓] Aria2 accelerator installed:${NC} $(aria2c --version | head -n 1 | awk '{print $3}')"
+else
+    echo -e "${YELLOW}[!] Aria2 not found. Installing via Homebrew for 5x download acceleration...${NC}"
+    if command -v brew &> /dev/null; then
+        brew install aria2
     fi
 fi
 
@@ -94,7 +103,7 @@ trap cleanup SIGINT SIGTERM
 
 # 8. Start Backend Service (FastAPI)
 echo -e "${BLUE}[+] Launching FastAPI Backend on http://127.0.0.1:8000 ...${NC}"
-.venv/bin/uvicorn web.api.app:app --host 127.0.0.1 --port 8000 > /dev/null 2>&1 &
+.venv/bin/uvicorn web.api.app:app --host 127.0.0.1 --port 8000 --reload > outputs/backend.log 2>&1 &
 BACKEND_PID=$!
 
 # 9. Start Frontend Dashboard (Vite)
