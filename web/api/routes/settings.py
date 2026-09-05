@@ -61,6 +61,8 @@ async def get_settings() -> SettingsResponse:
         nvidia_api_key_set=bool(nvidia_key),
         sambanova_api_key_set=bool(sambanova_key),
         default_clips=int(env.get("DEFAULT_CLIPS", "7")),
+        default_min_clip_duration=int(env.get("DEFAULT_MIN_CLIP_DURATION", "20")),
+        default_max_clip_duration=int(env.get("DEFAULT_MAX_CLIP_DURATION", "90")),
         default_ratio=env.get("DEFAULT_RATIO", "9:16"),
         default_font_style=env.get("DEFAULT_FONT_STYLE", "HORMOZI"),
         default_whisper_model=env.get("DEFAULT_WHISPER_MODEL", "large-v3"),
@@ -87,6 +89,10 @@ async def update_settings(req: SettingsRequest) -> SettingsResponse:
         env_updates["SAMBANOVA_API_KEY"] = req.sambanova_api_key
     if req.default_clips is not None:
         env_updates["DEFAULT_CLIPS"] = str(req.default_clips)
+    if req.default_min_clip_duration is not None:
+        env_updates["DEFAULT_MIN_CLIP_DURATION"] = str(req.default_min_clip_duration)
+    if req.default_max_clip_duration is not None:
+        env_updates["DEFAULT_MAX_CLIP_DURATION"] = str(req.default_max_clip_duration)
     if req.default_ratio is not None:
         env_updates["DEFAULT_RATIO"] = req.default_ratio.value if hasattr(req.default_ratio, "value") else req.default_ratio
     if req.default_font_style is not None:
