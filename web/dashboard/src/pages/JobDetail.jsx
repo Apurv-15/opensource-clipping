@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { fetchJob, deleteJob, retryJob, createSSEConnection } from '../api'
 
@@ -11,6 +11,19 @@ const STEPS = [
   { key: 'done', label: 'Done' },
 ]
 
+function parseLogLine(line) {
+  // Matches e.g. [17:15:22] [AI_RETRY] message or [download] message
+  const match = line.match(/^(\[\d{2}:\d{2}:\d{2}\])?\s*\[([a-zA-Z0-9_-]+)\]\s*(.*)$/)
+  if (match) {
+    return {
+      time: match[1] ? match[1].replace(/[\[\]]/g, '') : null,
+      badge: match[2].toUpperCase(),
+      message: match[3],
+    }
+  }
+  return { time: null, badge: 'INFO', message: line }
+}
+
 function JobDetail() {
   const { jobId } = useParams()
   const navigate = useNavigate()
@@ -19,6 +32,13 @@ function JobDetail() {
   const [deleting, setDeleting] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
+
+  // Log Stream Controls
+  const [logFilter, setLogFilter] = useState('all') // 'all' | 'ai' | 'errors'
+  const [logSearch, setLogSearch] = useState('')
+  const [autoScroll, setAutoScroll] = useState(true)
+  const [copied, setCopied] = useState(false)
+  const logEndRef = useRef(null)
 
   const handleDelete = async () => {
     if (!window.confirm(`Are you sure you want to delete job #${jobId}?`)) return
@@ -46,6 +66,15 @@ function JobDetail() {
     }
   }
 
+  const handleCopyLogs = () => {
+    if (!job?.log) return
+    const text = job.log.join('\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   useEffect(() => {
     let sse = null
 
@@ -60,7 +89,14 @@ function JobDetail() {
             if (event.type === 'completed') {
               fetchJob(jobId).then(setJob)
             } else if (event.type === 'progress') {
-              setJob(prev => prev ? { ...prev, status: event.status, progress: event.progress, error: event.error } : prev)
+              setJob(prev => prev ? {
+                ...prev,
+                status: event.status,
+                progress: event.progress,
+                error: event.error,
+                log: event.log || prev.log,
+                ai_diagnostics: event.ai_diagnostics || prev.ai_diagnostics,
+              } : prev)
             }
           })
         }
@@ -75,7 +111,7 @@ function JobDetail() {
     return () => { if (sse) sse.close() }
   }, [jobId, retryCount])
 
-  // Also poll for updates
+  // Polling fallback
   useEffect(() => {
     if (!job) return
     const terminal = ['completed', 'failed', 'cancelled']
@@ -90,11 +126,36 @@ function JobDetail() {
     return () => clearInterval(interval)
   }, [jobId, job?.status, retryCount])
 
+  // Auto-scroll log
+  useEffect(() => {
+    if (autoScroll && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [job?.log?.length, autoScroll, logFilter, logSearch])
+
   if (loading) return <div className="empty-state"><div className="spinner"></div></div>
   if (!job) return <div className="empty-state"><h3>Job not found</h3></div>
 
   const currentStep = job.progress?.step || ''
   const percent = job.progress?.percent || 0
+  const aiDiag = job.ai_diagnostics || {}
+  const aiProvider = aiDiag.provider || job.config?.ai_provider || 'gemini'
+  const aiModel = aiDiag.model || job.config?.[`${aiProvider}_model`] || job.config?.ai_model || 'gemini-3.6-flash'
+  const aiStatus = aiDiag.status || (currentStep === 'analyze' ? 'querying' : (job.status === 'completed' ? 'success' : 'idle'))
+
+  // Filter logs
+  const logs = job.log || []
+  const filteredLogs = logs.filter(line => {
+    const lower = line.toLowerCase()
+    if (logSearch && !lower.includes(logSearch.toLowerCase())) return false
+    if (logFilter === 'ai') {
+      return lower.includes('[ai') || lower.includes('gemini') || lower.includes('sambanova') || lower.includes('nvidia') || lower.includes('whisper')
+    }
+    if (logFilter === 'errors') {
+      return lower.includes('gagal') || lower.includes('fail') || lower.includes('error') || lower.includes('retry') || lower.includes('warn') || lower.includes('404') || lower.includes('429') || lower.includes('402') || lower.includes('fallback')
+    }
+    return true
+  })
 
   return (
     <div className="fade-in">
@@ -108,8 +169,8 @@ function JobDetail() {
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={retrying || !['completed', 'failed', 'cancelled'].includes(job.status)}
-            title={['completed', 'failed', 'cancelled'].includes(job.status) ? "Retry this job" : "Job is currently running"}
+            disabled={retrying}
+            title={['completed', 'failed', 'cancelled'].includes(job.status) ? "Retry this job" : "Restart / Force retry this job"}
             onClick={handleRetry}
           >
             {retrying ? 'Retrying...' : '🔄 Retry'}
@@ -160,10 +221,102 @@ function JobDetail() {
         </div>
       )}
 
+      {/* AI Model Health & Diagnostics Card */}
+      {(currentStep === 'analyze' || aiDiag.status || aiDiag.last_error || job.status === 'failed') && (
+        <div className={`ai-diagnostics-card status-${aiStatus}`}>
+          <div className="ai-diag-header">
+            <div className="ai-diag-title">
+              <span style={{ fontSize: '18px' }}>
+                {aiProvider === 'sambanova' ? '⚡' : aiProvider === 'nvidia' ? '🟢' : '💎'}
+              </span>
+              <h4>AI Engine: {aiProvider.toUpperCase()}</h4>
+              <span className="ai-model-tag">{aiModel}</span>
+              {aiDiag.fallback_model && (
+                <span className="ai-model-tag" style={{ borderColor: 'rgba(249, 115, 22, 0.4)', color: '#fb923c' }}>
+                  Fallback: {aiDiag.fallback_model}
+                </span>
+              )}
+            </div>
+
+            <div className={`ai-status-pill status-${aiStatus}`}>
+              {['querying', 'retrying', 'fallback'].includes(aiStatus) && <span className="ai-pulse-dot"></span>}
+              {aiStatus === 'querying' && 'Querying Model...'}
+              {aiStatus === 'retrying' && `Retrying (Attempt ${aiDiag.attempt || 1}/${aiDiag.max_attempts || 3})`}
+              {aiStatus === 'degraded' && 'Performance Degraded'}
+              {aiStatus === 'fallback' && 'Fallback Engaged'}
+              {aiStatus === 'failed' && 'Model Failed'}
+              {aiStatus === 'success' && 'Optimal & Ready'}
+              {aiStatus === 'idle' && 'Standby'}
+            </div>
+          </div>
+
+          <div className="ai-stats-row">
+            <div className="ai-stat-item">
+              <span className="ai-stat-label">Status</span>
+              <span className="ai-stat-value" style={{ textTransform: 'capitalize' }}>
+                {aiStatus}
+              </span>
+            </div>
+
+            {aiDiag.attempt && (
+              <div className="ai-stat-item">
+                <span className="ai-stat-label">Attempt</span>
+                <span className="ai-stat-value">{aiDiag.attempt} / {aiDiag.max_attempts || 3}</span>
+              </div>
+            )}
+
+            {aiDiag.elapsed_seconds && (
+              <div className="ai-stat-item">
+                <span className="ai-stat-label">Latency</span>
+                <span className="ai-stat-value">{aiDiag.elapsed_seconds}s</span>
+              </div>
+            )}
+
+            {aiDiag.retry_in_seconds > 0 && (
+              <div className="ai-stat-item">
+                <span className="ai-stat-label">Backoff Delay</span>
+                <span className="ai-stat-value" style={{ color: 'var(--warning)' }}>{aiDiag.retry_in_seconds}s</span>
+              </div>
+            )}
+
+            {aiDiag.clips_found !== undefined && (
+              <div className="ai-stat-item">
+                <span className="ai-stat-label">Clips Extracted</span>
+                <span className="ai-stat-value" style={{ color: 'var(--success)' }}>{aiDiag.clips_found}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Actionable Resolution Guidance */}
+          {(['retrying', 'degraded', 'fallback', 'failed'].includes(aiStatus) || aiDiag.last_error) && (
+            <div className={`ai-resolution-box ${aiStatus === 'failed' ? '' : 'warning-box'}`}>
+              <strong>
+                {aiStatus === 'failed' ? '❌ AI Model Failed' : '⚠️ AI Model Warning / Degradation Detected'}
+                {aiDiag.last_status_code ? ` [HTTP ${aiDiag.last_status_code}]` : ''}
+              </strong>
+              <div>{aiDiag.last_error || 'The AI model experienced connection or quota issues.'}</div>
+              {aiDiag.resolution_hint && (
+                <div style={{ marginTop: '6px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                  💡 <strong>How to resolve:</strong> {aiDiag.resolution_hint}
+                </div>
+              )}
+              <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                <Link to="/settings" className="btn btn-secondary btn-sm" style={{ padding: '3px 10px', fontSize: '11px' }}>
+                  ⚙️ Configure API Keys
+                </Link>
+                <Link to="/new" state={{ reuseJob: job }} className="btn btn-ghost btn-sm" style={{ padding: '3px 10px', fontSize: '11px' }}>
+                  Switch Provider in New Job
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Error */}
       {job.error && (
         <div className="card" style={{ marginBottom: '16px', borderColor: 'rgba(239,68,68,0.2)' }}>
-          <h3 style={{ color: 'var(--error)', fontSize: '14px', marginBottom: '8px' }}>❌ Error</h3>
+          <h3 style={{ color: 'var(--error)', fontSize: '14px', marginBottom: '8px' }}>❌ Pipeline Error</h3>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{job.error}</p>
         </div>
       )}
@@ -195,15 +348,82 @@ function JobDetail() {
         </>
       )}
 
-      {/* Log */}
-      {job.log && job.log.length > 0 && (
-        <div style={{ marginTop: '24px' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>📋 Activity Log</h3>
-          <div className="log-viewer">
-            {job.log.map((line, i) => <div key={i}>{line}</div>)}
+      {/* Real-time Streaming Activity Log */}
+      <div className="log-stream-card">
+        <div className="log-stream-header">
+          <div className="log-filter-tabs">
+            <button
+              type="button"
+              className={`log-tab-btn ${logFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setLogFilter('all')}
+            >
+              All Logs ({logs.length})
+            </button>
+            <button
+              type="button"
+              className={`log-tab-btn ${logFilter === 'ai' ? 'active' : ''}`}
+              onClick={() => setLogFilter('ai')}
+            >
+              🤖 AI Diagnostics
+            </button>
+            <button
+              type="button"
+              className={`log-tab-btn ${logFilter === 'errors' ? 'active' : ''}`}
+              onClick={() => setLogFilter('errors')}
+            >
+              ⚠️ Warnings & Errors
+            </button>
+          </div>
+
+          <div className="log-stream-actions">
+            <input
+              type="text"
+              className="log-search-input"
+              placeholder="Search logs..."
+              value={logSearch}
+              onChange={(e) => setLogSearch(e.target.value)}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={autoScroll}
+                onChange={(e) => setAutoScroll(e.target.checked)}
+              />
+              Auto-scroll
+            </label>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={handleCopyLogs}
+              title="Copy entire log to clipboard"
+            >
+              {copied ? '✅ Copied' : '📋 Copy Logs'}
+            </button>
           </div>
         </div>
-      )}
+
+        <div className="log-viewer">
+          {filteredLogs.length === 0 ? (
+            <div style={{ color: 'var(--text-tertiary)', fontStyle: 'italic', padding: '8px 0' }}>
+              No log entries match the current filter.
+            </div>
+          ) : (
+            filteredLogs.map((rawLine, i) => {
+              const { time, badge, message } = parseLogLine(rawLine)
+              return (
+                <div key={i} className="log-row">
+                  {time && <span className="log-time">{time}</span>}
+                  <span className={`log-badge badge-${badge.toLowerCase()}`}>
+                    {badge}
+                  </span>
+                  <span className="log-text">{message}</span>
+                </div>
+              )
+            })
+          )}
+          <div ref={logEndRef} />
+        </div>
+      </div>
     </div>
   )
 }
