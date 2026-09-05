@@ -46,6 +46,7 @@ class FontStyle(str, enum.Enum):
     STORYTELLER = "STORYTELLER"
     HORMOZI = "HORMOZI"
     CINEMATIC = "CINEMATIC"
+    MUKTA = "MUKTA"
 
 
 class FaceDetector(str, enum.Enum):
@@ -87,11 +88,16 @@ class JobCreateRequest(BaseModel):
     # Content & Hook
     words_per_sub: int = Field(5, ge=1, le=15)
     hook_duration: int = Field(3, ge=1, le=10)
+    min_clip_duration: Optional[int] = Field(None, ge=10, le=300, description="Minimum clip duration in seconds")
+    max_clip_duration: Optional[int] = Field(None, ge=15, le=600, description="Maximum clip duration in seconds")
     use_broll: bool = True
     use_hook_glitch: bool = True
     use_auto_bgm: bool = True
     use_karaoke_effect: bool = True
     use_split_screen: bool = False
+    use_dynamic_split: bool = False
+    split_auto_zoom: bool = False
+    split_zoom: float = 1.0
     use_camera_switch: bool = False
     no_subs: bool = False
 
@@ -103,6 +109,7 @@ class JobCreateRequest(BaseModel):
 
     # Subtitle & Typography
     font_style: FontStyle = FontStyle.HORMOZI
+    text_behind_person: bool = False
 
     # Whisper
     whisper_model: str = "large-v3-turbo"
@@ -171,6 +178,7 @@ class JobResponse(BaseModel):
     clips: list[ClipDetail] = Field(default_factory=list)
     error: Optional[str] = None
     log: list[str] = Field(default_factory=list)
+    ai_diagnostics: Optional[dict] = None
 
 
 class JobListResponse(BaseModel):
@@ -192,6 +200,8 @@ class SettingsRequest(BaseModel):
     sambanova_api_key: Optional[str] = None
     # Defaults
     default_clips: Optional[int] = None
+    default_min_clip_duration: Optional[int] = None
+    default_max_clip_duration: Optional[int] = None
     default_ratio: Optional[AspectRatio] = None
     default_font_style: Optional[FontStyle] = None
     default_whisper_model: Optional[str] = None
@@ -207,6 +217,8 @@ class SettingsResponse(BaseModel):
     nvidia_api_key_set: bool = False
     sambanova_api_key_set: bool = False
     default_clips: int = 7
+    default_min_clip_duration: int = 20
+    default_max_clip_duration: int = 90
     default_ratio: str = "9:16"
     default_font_style: str = "HORMOZI"
     default_whisper_model: str = "large-v3"
