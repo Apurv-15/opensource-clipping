@@ -740,9 +740,9 @@ def buat_video_camera_switch(
         return_code = writer.wait()
 
         if return_code != 0:
-            raise RuntimeError(f"FFmpeg writer gagal: {stderr_data[-1000:]}")
+            raise RuntimeError(f"FFmpeg writer failed: {stderr_data[-1000:]}")
 
-        print(f"✅ {label} selesai.", flush=True)
+        print(f"✅ {label} completed.", flush=True)
 
         # Helper for subtitle positioning
         def get_x_final(t):
