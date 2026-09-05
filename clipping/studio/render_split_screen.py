@@ -485,81 +485,38 @@ def buat_video_split_screen(
     # ================================================================
     # FASE 1.5 — Determine Stable Global Zoom
     # ================================================================
-    global_min_dist = width
-    for spk_list in raw_data.values():
-        for d in spk_list:
-            if d.get("dist", width) < global_min_dist:
-                global_min_dist = d["dist"]
-    
-    # Calculate a FIXED zoom for the entire clip — no per-frame zoom changes.
-    # This ensures split panels are zoomed-in from frame 0, with no camera "movement".
+    # Auto-zoom should nicely frame head & shoulders (~1.1x to 1.45x)
+    # without ever over-magnifying faces or cropping off foreheads/chins.
+    max_safe_zoom = min(float(getattr(cfg, "split_max_zoom", 1.45)), 1.55)
+
+    # Calculate separation between primary speakers rather than background crowd
+    if len(all_speakers_in_clip) >= 2 and robust_cx and "FACE_L" in robust_cx and "FACE_R" in robust_cx:
+        primary_separation = abs(robust_cx["FACE_R"] - robust_cx["FACE_L"])
+    else:
+        primary_separation = width * 0.5
+
     def _calc_clip_zoom(min_dist):
-        if not cfg.split_auto_zoom or min_dist >= width * 0.9:
+        if not getattr(cfg, "split_auto_zoom", False) or min_dist >= width * 0.9:
             return 1.0
-        # Use PANEL ratio (wider aspect, ~9:8) — NOT 9:16 full-frame ratio
         p_ratio = panel_w / panel_h
         ref_w = int(height * p_ratio) if (width / height) > p_ratio else width
-        # Buffer for face width so we don't just barely clip the neighbor
-        buffer = ref_w * 0.10
-        eff_dist = max(80, min_dist - buffer)
-        # Multiplier 1.8: needs to be aggressive enough to fully hide neighbor
-        t_zoom = (ref_w / (2 * eff_dist)) * 1.8
-        return max(1.0, min(t_zoom, getattr(cfg, "split_max_zoom", 4.5)))
+        eff_dist = max(width * 0.2, min_dist * 0.5)
+        t_zoom = ref_w / (2 * eff_dist)
+        return max(1.0, min(t_zoom, max_safe_zoom))
 
-    clip_fixed_zoom = _calc_clip_zoom(global_min_dist)
+    clip_fixed_zoom = _calc_clip_zoom(primary_separation)
     
     # ================================================================
-    # Per-speaker zoom: ensures face is CENTERED and neighbor is HIDDEN
-    # ================================================================
-    # Strategy: compute the midpoint between the two speakers.
-    # Each speaker's crop should not cross this midpoint.
-    # Zoom = ref_w / (2 * distance_from_face_to_midpoint)
-    # This guarantees face is at 50% of the crop.
+    # Per-speaker zoom: ensures face is centered and framed nicely
     # ================================================================
     speaker_zoom: dict[str, float] = {}
     
-    if cfg.split_auto_zoom and len(all_speakers_in_clip) >= 2:
-        p_ratio = panel_w / panel_h
-        ref_w = int(height * p_ratio) if (width / height) > p_ratio else width
-        max_zoom = getattr(cfg, "split_max_zoom", 4.5)
-        
-        if robust_cx:
-            spk_median_cx = robust_cx
-        else:
-            import statistics as _st_z
-            spk_median_cx = {}
-            for spk in all_speakers_in_clip:
-                if raw_data[spk]:
-                    spk_median_cx[spk] = _st_z.median([d["cx"] for d in raw_data[spk]])
-        
-        if len(spk_median_cx) >= 2:
-            spk_list = sorted(spk_median_cx.keys(), key=lambda s: spk_median_cx[s])
-            # Global midpoint between the two main speakers
-            cx_left = spk_median_cx[spk_list[0]]
-            cx_right = spk_median_cx[spk_list[1]]
-            midpoint = (cx_left + cx_right) / 2
-            
-            for spk in all_speakers_in_clip:
-                cx = spk_median_cx.get(spk, width / 2)
-                # Distance from this face to the midpoint
-                dist_to_mid = abs(cx - midpoint)
-                # Distance from this face to the nearest frame edge
-                dist_to_edge = min(cx, width - cx)
-                # The crop half-width must be <= both constraints
-                max_half_crop = min(dist_to_mid, dist_to_edge)
-                max_half_crop = max(max_half_crop, 50)  # safety floor
-                
-                needed_zoom = ref_w / (2 * max_half_crop)
-                needed_zoom = max(1.0, min(needed_zoom, max_zoom))
-                
-                # Use the most aggressive zoom (per-speaker or global separation)
-                speaker_zoom[spk] = max(needed_zoom, clip_fixed_zoom)
-        else:
-            for spk in all_speakers_in_clip:
-                speaker_zoom[spk] = clip_fixed_zoom
-    else:
+    if getattr(cfg, "split_auto_zoom", False) and len(all_speakers_in_clip) >= 2:
         for spk in all_speakers_in_clip:
             speaker_zoom[spk] = clip_fixed_zoom
+    else:
+        for spk in all_speakers_in_clip:
+            speaker_zoom[spk] = 1.0
     
     # Debug: show zoom decision values
     print(f"   🔍 Split Auto-Zoom: separation_zoom={clip_fixed_zoom:.2f}x", flush=True)
@@ -796,7 +753,8 @@ def buat_video_split_screen(
 
             # --- Layout decision logic ---
             if is_dynamic:
-                if cfg.split_trigger == "face":
+                use_face_trigger = (getattr(cfg, "split_trigger", "diarization") == "face" or not diarization_data)
+                if use_face_trigger:
                     now_boxes = _get_all_boxes(t)
                     now_count = len(now_boxes)
                     face_count_history.append(now_count)
@@ -876,7 +834,7 @@ def buat_video_split_screen(
                 
                 if current_layout == "full":
                     # Switch speaker if audio trigger is active, or stay on tracked
-                    if not cfg.split_trigger == "face":
+                    if not use_face_trigger:
                         if len(active_speakers) == 1 and active_speakers[0] != current_speaker:
                             if (t - last_switch_time) >= MIN_HOLD:
                                 prev_speaker_split = current_speaker
@@ -1160,16 +1118,16 @@ def buat_video_split_screen(
             stderr_data = writer_main.stderr.read().decode("utf-8", errors="ignore")
             return_code = writer_main.wait()
             if return_code != 0:
-                raise RuntimeError(f"FFmpeg writer main gagal: {stderr_data[-1000:]}")
+                raise RuntimeError(f"FFmpeg writer main failed: {stderr_data[-1000:]}")
         
         if writer_dev:
             writer_dev.stdin.close()
             stderr_data_dev = writer_dev.stderr.read().decode("utf-8", errors="ignore")
             return_code_dev = writer_dev.wait()
             if return_code_dev != 0:
-                raise RuntimeError(f"FFmpeg writer dev gagal: {stderr_data_dev[-1000:]}")
+                raise RuntimeError(f"FFmpeg writer dev failed: {stderr_data_dev[-1000:]}")
 
-        print(f"✅ {label} selesai.", flush=True)
+        print(f"✅ {label} completed.", flush=True)
 
     finally:
         cap.release()
