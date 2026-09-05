@@ -146,7 +146,16 @@ def detect_video_encoder(cfg=None, target_h=1080):
         "-bufsize", f"{int(float(target_bitrate.replace('M', '')) * 2)}M",
     ]
 
-    # ponytail: NVENC -> AMD AMF -> AMD VAAPI -> CPU
+    # Apple Silicon VideoToolbox (M1/M2/M3/M4/M5 Hardware Encoder)
+    videotoolbox_args = [
+        "-c:v", "h264_videotoolbox",
+        "-b:v", target_bitrate,
+        "-maxrate", f"{int(float(target_bitrate.replace('M', '')) * 1.5)}M",
+        "-bufsize", f"{int(float(target_bitrate.replace('M', '')) * 2)}M",
+        "-pix_fmt", "yuv420p",
+    ]
+
+    # Priority: NVIDIA NVENC -> Apple Silicon VideoToolbox -> AMD AMF -> AMD VAAPI -> CPU
     if _ffmpeg_has_encoder("h264_nvenc"):
         ok, _ = _test_encoder_runtime(nvenc_args_fastest)
         if ok:
@@ -157,6 +166,12 @@ def detect_video_encoder(cfg=None, target_h=1080):
         if ok:
             print(f"🚀 Pakai NVIDIA NVENC {nvenc_preset_legacy} (Bitrate {target_bitrate}, CQ {nvenc_cq})", flush=True)
             return {"name": "h264_nvenc", "args": nvenc_args_legacy}
+
+    if _ffmpeg_has_encoder("h264_videotoolbox"):
+        ok, _ = _test_encoder_runtime(videotoolbox_args)
+        if ok:
+            print(f"⚡ Pakai Apple Silicon VideoToolbox (M-Series Hardware Accelerated, Bitrate {target_bitrate})", flush=True)
+            return {"name": "h264_videotoolbox", "args": videotoolbox_args}
 
     if _ffmpeg_has_encoder("h264_amf"):
         ok, _ = _test_encoder_runtime(amf_args)

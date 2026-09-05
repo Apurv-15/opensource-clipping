@@ -154,8 +154,8 @@ RENDER_OUTPUT_HEIGHT = 1080
 AI_PROVIDER = os.environ.get("DEFAULT_AI_PROVIDER", "sambanova" if os.environ.get("SAMBANOVA_API_KEY") else "gemini")
 SAMBANOVA_MODEL = os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct")
 NVIDIA_MODEL = "deepseek-ai/deepseek-v4-pro"
-GEMINI_MODEL = "gemini-3-flash-preview"
-GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_FALLBACK_MODEL = "gemini-3-flash-preview"
 
 
 

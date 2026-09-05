@@ -23,16 +23,41 @@ function NewJob() {
   const [whisperModel, setWhisperModel] = useState('base')
   const [whisperDevice, setWhisperDevice] = useState('cpu')
   const [aiProvider, setAiProvider] = useState('sambanova')
+  const [aiModel, setAiModel] = useState('Meta-Llama-3.3-70B-Instruct')
+  const [targetLanguage, setTargetLanguage] = useState('english')
+
+  const PROVIDER_MODELS = {
+    sambanova: [
+      { id: 'Meta-Llama-3.3-70B-Instruct', name: 'Meta Llama 3.3 70B (Recommended)' },
+      { id: 'DeepSeek-R1', name: 'DeepSeek R1 (Reasoning / Virality)' },
+      { id: 'DeepSeek-V3.1', name: 'DeepSeek V3.1' },
+      { id: 'Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B' },
+      { id: 'Meta-Llama-3.1-8B-Instruct', name: 'Meta Llama 3.1 8B (Ultra Fast)' },
+    ],
+    gemini: [
+      { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash (Recommended)' },
+      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview' },
+    ],
+    nvidia: [
+      { id: 'deepseek-ai/deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { id: 'meta/llama-3.3-70b-instruct', name: 'Meta Llama 3.3 70B' },
+      { id: 'mistralai/mistral-large-2-instruct', name: 'Mistral Large 2' },
+    ],
+  }
 
   // Toggles
   const [useBroll, setUseBroll] = useState(true)
   const [useHookGlitch, setUseHookGlitch] = useState(true)
   const [useBgm, setUseBgm] = useState(true)
   const [useKaraoke, setUseKaraoke] = useState(true)
+  const [useSplitScreen, setUseSplitScreen] = useState(false)
+  const [useCameraSwitch, setUseCameraSwitch] = useState(false)
   const [noSubs, setNoSubs] = useState(false)
   const [hookV2, setHookV2] = useState(false)
   const [silenceTrim, setSilenceTrim] = useState(false)
-  const [useDlpSubs, setUseDlpSubs] = useState(true)
+  const [useDlpSubs, setUseDlpSubs] = useState(false)
   const [loadGeminiJson, setLoadGeminiJson] = useState(false)
 
   // Load from location state if user clicked "Clone / Rerun"
@@ -57,6 +82,8 @@ function NewJob() {
       if (config.use_hook_glitch !== undefined) setUseHookGlitch(config.use_hook_glitch)
       if (config.use_auto_bgm !== undefined) setUseBgm(config.use_auto_bgm)
       if (config.use_karaoke_effect !== undefined) setUseKaraoke(config.use_karaoke_effect)
+      if (config.use_split_screen !== undefined) setUseSplitScreen(config.use_split_screen)
+      if (config.use_camera_switch !== undefined) setUseCameraSwitch(config.use_camera_switch)
       if (config.hook_v2 !== undefined) setHookV2(config.hook_v2)
       if (config.silence_trim !== undefined) setSilenceTrim(config.silence_trim)
       if (config.use_dlp_subs !== undefined) setUseDlpSubs(config.use_dlp_subs)
@@ -89,11 +116,11 @@ function NewJob() {
     setError('')
 
     if (mode === 'url' && !url.trim()) {
-      setError('URL tidak boleh kosong')
+      setError('Masukkan URL video terlebih dahulu.')
       return
     }
     if (mode === 'upload' && !uploadFilename) {
-      setError('Silakan upload video terlebih dahulu')
+      setError('Pilih atau upload file video terlebih dahulu.')
       return
     }
     if (mode === 'reuse' && !reuseJobId.trim()) {
@@ -104,18 +131,24 @@ function NewJob() {
     setSubmitting(true)
     try {
       const payload = {
-        ...(mode === 'url' ? { url: url.trim() } : { upload_filename: uploadFilename }),
+        url: mode === 'url' ? url.trim() : null,
+        upload_filename: mode === 'upload' ? uploadFilename : null,
         source,
-        clips,
+        clips: parseInt(clips, 10),
         ratio,
         font_style: fontStyle,
         whisper_model: whisperModel,
         whisper_device: whisperDevice,
+        whisper_compute_type: whisperDevice === 'cuda' ? 'float16' : 'int8',
         ai_provider: aiProvider,
+        ai_model: aiModel,
+        target_language: targetLanguage,
         use_broll: useBroll,
         use_hook_glitch: useHookGlitch,
         use_auto_bgm: useBgm,
         use_karaoke_effect: useKaraoke,
+        use_split_screen: useSplitScreen,
+        use_camera_switch: useCameraSwitch,
         no_subs: noSubs,
         hook_v2: hookV2,
         silence_trim: silenceTrim,
@@ -265,6 +298,17 @@ function NewJob() {
               </select>
             </div>
             <div className="form-group">
+              <label className="form-label">Language</label>
+              <select className="form-select" value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
+                <option value="english">English (Global)</option>
+                <option value="hinglish">Hinglish (Hindi in Roman script)</option>
+                <option value="hindi">Hindi</option>
+                <option value="indonesian">Indonesian (Bahasa Indonesia)</option>
+                <option value="spanish">Spanish</option>
+                <option value="auto">Auto Detect</option>
+              </select>
+            </div>
+            <div className="form-group">
               <label className="form-label">Font Style</label>
               <select className="form-select" value={fontStyle} onChange={(e) => setFontStyle(e.target.value)}>
                 <option value="HORMOZI">Hormozi (Bold)</option>
@@ -280,16 +324,37 @@ function NewJob() {
             <h4>🤖 AI & Whisper</h4>
             <div className="form-group">
               <label className="form-label">AI Provider</label>
-              <select className="form-select" value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
-                <option value="sambanova">SambaNova Cloud (Free Llama-3.3-70B)</option>
+              <select
+                className="form-select"
+                value={aiProvider}
+                onChange={(e) => {
+                  const newProvider = e.target.value
+                  setAiProvider(newProvider)
+                  if (PROVIDER_MODELS[newProvider]?.[0]) {
+                    setAiModel(PROVIDER_MODELS[newProvider][0].id)
+                  }
+                }}
+              >
+                <option value="sambanova">SambaNova Cloud (Ultra Fast)</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="nvidia">NVIDIA NIM</option>
               </select>
             </div>
             <div className="form-group">
+              <label className="form-label">AI Model</label>
+              <select className="form-select" value={aiModel} onChange={(e) => setAiModel(e.target.value)}>
+                {(PROVIDER_MODELS[aiProvider] || []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
               <label className="form-label">Whisper Model</label>
               <select className="form-select" value={whisperModel} onChange={(e) => setWhisperModel(e.target.value)}>
-                <option value="large-v3">large-v3 (Best quality)</option>
+                <option value="large-v3-turbo">large-v3-turbo (Recommended - Fast & Accurate)</option>
+                <option value="large-v3">large-v3 (Best Quality)</option>
                 <option value="medium">medium (Balanced)</option>
                 <option value="small">small (Fast)</option>
                 <option value="base">base (Fastest)</option>
@@ -298,8 +363,8 @@ function NewJob() {
             <div className="form-group">
               <label className="form-label">Device</label>
               <select className="form-select" value={whisperDevice} onChange={(e) => setWhisperDevice(e.target.value)}>
-                <option value="cuda">CUDA (GPU)</option>
-                <option value="cpu">CPU</option>
+                <option value="cpu">CPU (Recommended for Mac)</option>
+                <option value="cuda">CUDA (NVIDIA GPU)</option>
                 <option value="auto">Auto</option>
               </select>
             </div>
@@ -307,7 +372,9 @@ function NewJob() {
 
           {/* Feature Toggles */}
           <div className="config-section">
-            <h4>✨ Features</h4>
+            <h4>✨ Features & Modes</h4>
+            <ToggleRow label="Split-Screen" desc="Podcast 2-speaker top/bottom split" checked={useSplitScreen} onChange={setUseSplitScreen} />
+            <ToggleRow label="Camera-Switch" desc="Auto switch camera to active speaker" checked={useCameraSwitch} onChange={setUseCameraSwitch} />
             <ToggleRow label="B-Roll Footage" desc="Insert stock footage" checked={useBroll} onChange={setUseBroll} />
             <ToggleRow label="Hook Glitch" desc="Glitch transition intro" checked={useHookGlitch} onChange={setUseHookGlitch} />
             <ToggleRow label="Background Music" desc="Auto BGM matching" checked={useBgm} onChange={setUseBgm} />

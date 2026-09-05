@@ -185,7 +185,7 @@ def download_video(
         print("      Mencoba mencari subtitle bahasa otomatis (en / id)...")
         import glob
 
-        for lang in ["en", "id"]:
+        for lang in ["en", "en-US", "en-GB", "hi", "id"]:
             ydl_opts_subs = ydl_opts.copy()
             ydl_opts_subs.update({
                 "writesubtitles": True,
@@ -374,11 +374,19 @@ def transcribe_video(
     try:
         model = WhisperModel(model_size, device=device, compute_type=compute_type)
     except Exception as e:
-        if device == "cuda" or "cuda" in str(e).lower():
+        err_str = str(e).lower()
+        if "float16" in err_str or "float 16" in err_str:
+            print(f"      ℹ️ Device/CPU tidak mendukung float16 ({e}). Beralih otomatis ke int8...", flush=True)
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        elif device == "cuda" or "cuda" in err_str:
             print(f"      ⚠️ CUDA tidak tersedia di sistem ini ({e}). Beralih otomatis ke CPU (int8)...", flush=True)
             model = WhisperModel(model_size, device="cpu", compute_type="int8")
         else:
-            raise e
+            print(f"      ⚠️ Whisper gagal dengan compute_type={compute_type} ({e}). Mencoba fallback CPU (int8)...", flush=True)
+            try:
+                model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            except Exception:
+                raise e
 
     print("      ⏳ Mendekode audio & mengekstrak fitur (belum ada output)...", flush=True)
     segments, info = model.transcribe(video_path, beam_size=5, word_timestamps=True)
@@ -607,9 +615,16 @@ SEGMENT-BASED TRIMMING (KEEP SEGMENTS — WAJIB):
 - Jika seluruh durasi klip sudah padat dan menarik, cukup buat 1 segment yang mencakup seluruh durasi.{_silence_hint}
 - Isi field "keep_segments" sebagai array dari objek (start_time, end_time).
 """
+    target_lang = getattr(cfg, "target_language", "english")
+    lang_instruction = f"""
+LANGUAGE & AUDIENCE INSTRUCTION:
+- Target Language: {target_lang.upper()}
+- Titles, summaries, hooks, hashtags, and all metadata must be generated in {target_lang.capitalize()} (unless original video text is explicitly retained).
+"""
+
     return f"""
 Kamu adalah Art Director, Editor Video, dan Strategist Metadata Short-Form Content untuk TikTok, Reels, dan YouTube Shorts.
-
+{lang_instruction}
 Baca transkrip video berikut. Format transkrip:
 [detik_mulai - detik_selesai] teks
 

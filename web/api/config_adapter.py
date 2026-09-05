@@ -192,14 +192,17 @@ def build_config_from_payload(
         whisper_model=payload.get("whisper_model", "base"),
         whisper_device=payload.get("whisper_device", "cpu"),
         whisper_compute_type=payload.get("whisper_compute_type", "int8" if payload.get("whisper_device") != "cuda" else "float16"),
-        # AI
+        # AI & Language
         ai_provider=ai_provider,
+        target_language=payload.get("target_language", "english"),
         api_key_sambanova=env.get("SAMBANOVA_API_KEY", os.environ.get("SAMBANOVA_API_KEY", "")),
-        sambanova_model=payload.get("sambanova_model", os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct")),
+        sambanova_model=(payload.get("ai_model") if ai_provider == "sambanova" else None) or payload.get("sambanova_model") or os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct"),
         api_key_nvidia=env.get("NVIDIA_API_KEY", os.environ.get("NVIDIA_API_KEY", "")),
-        nvidia_model=payload.get("nvidia_model", "deepseek-ai/deepseek-v4-pro"),
-        gemini_model=payload.get("gemini_model", "gemini-3-flash-preview"),
-        gemini_fallback_model=payload.get("gemini_fallback_model", GEMINI_FALLBACK_MODEL),
+        nvidia_model=(payload.get("ai_model") if ai_provider == "nvidia" else None) or payload.get("nvidia_model") or "deepseek-ai/deepseek-v4-pro",
+        model_gemini=(payload.get("ai_model") if ai_provider == "gemini" else None) or payload.get("gemini_model") or "gemini-3.6-flash",
+        gemini_model=(payload.get("ai_model") if ai_provider == "gemini" else None) or payload.get("gemini_model") or "gemini-3.6-flash",
+        fallback_model_gemini="gemini-3-flash-preview",
+        gemini_fallback_model="gemini-3-flash-preview",
         load_gemini_json=payload.get("load_gemini_json", False),
         # Tracking Tuning (use defaults for web GUI)
         track_step=None,

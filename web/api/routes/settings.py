@@ -18,11 +18,13 @@ router = APIRouter(tags=["settings"])
 
 
 def _check_gpu() -> bool:
-    """Check if CUDA GPU is available."""
+    """Check if CUDA GPU or Apple Silicon Metal (MPS) is available."""
     try:
         import importlib
         torch_mod = importlib.import_module("torch")
-        return bool(getattr(torch_mod, "cuda", None) and torch_mod.cuda.is_available())
+        has_cuda = bool(getattr(torch_mod, "cuda", None) and torch_mod.cuda.is_available())
+        has_mps = bool(getattr(torch_mod, "backends", None) and getattr(torch_mod.backends, "mps", None) and torch_mod.backends.mps.is_available())
+        return has_cuda or has_mps
     except (ImportError, AttributeError):
         return False
 
@@ -104,11 +106,20 @@ async def update_settings(req: SettingsRequest) -> SettingsResponse:
 @router.get("/api/health")
 async def health_check() -> SystemHealthResponse:
     """System health check."""
+    env = worker.get_settings_env()
+    google_key = env.get("GOOGLE_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+    sambanova_key = env.get("SAMBANOVA_API_KEY", os.environ.get("SAMBANOVA_API_KEY", ""))
+
+    gemini_status = "Connected (15 RPM free tier)" if google_key else "Missing Key"
+    sambanova_status = "Connected (Free Unlimited)" if sambanova_key else "Missing Key"
+
     return SystemHealthResponse(
         status="ok",
-        version="1.12.0",
+        version="1.13.0",
         gpu_available=_check_gpu(),
         ffmpeg_available=_check_ffmpeg(),
         jobs_running=job_store.get_running_count(),
         jobs_queued=job_store.get_queued_count(),
+        gemini_status=gemini_status,
+        sambanova_status=sambanova_status,
     )

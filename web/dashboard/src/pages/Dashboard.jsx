@@ -103,6 +103,25 @@ function Dashboard() {
           <div style={{ fontSize: '28px', fontWeight: 800, marginTop: '4px', color: 'var(--accent-hover)' }}>{totalClips}</div>
         </div>
         <div className="card">
+          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>AI Quota & Status</div>
+          <div style={{ fontSize: '12px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ color: health?.gemini_status?.includes('Connected') ? 'var(--success)' : 'var(--text-tertiary)' }}>
+              💎 Gemini: {health?.gemini_status || 'Checking...'}
+            </span>
+            <span style={{ color: health?.sambanova_status?.includes('Connected') ? 'var(--accent-hover)' : 'var(--text-tertiary)' }}>
+              ⚡ Samba: {health?.sambanova_status || 'Checking...'}
+            </span>
+            <a
+              href="https://aistudio.google.com/app/plan_information"
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: '11px', color: 'var(--accent)', textDecoration: 'underline', marginTop: '2px' }}
+            >
+              Check Live Google Quota ↗
+            </a>
+          </div>
+        </div>
+        <div className="card">
           <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>System</div>
           <div style={{ fontSize: '12px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ color: health?.gpu_available ? 'var(--success)' : 'var(--text-tertiary)' }}>

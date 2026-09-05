@@ -179,7 +179,7 @@ function JobDetail() {
               <div key={i} className="clip-card">
                 <video className="clip-video" controls preload="metadata" src={clip.download_url} />
                 <div className="clip-body">
-                  <div className="clip-title">{clip.title || clip.title_en || `Clip ${clip.rank}`}</div>
+                  <div className="clip-title">{clip.title_en || clip.title || `Clip ${clip.rank}`}</div>
                   <div className="clip-stats">
                     {clip.viral_score && <span className="viral-score">🔥 {clip.viral_score}</span>}
                     {clip.duration && <span>{Math.round(clip.duration)}s</span>}

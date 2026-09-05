@@ -106,19 +106,20 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                 percent=14.0,
             )
         else:
-            if not cfg.url_youtube:
-                if os.path.exists(cfg.file_video_asli):
-                    store.update_progress(
-                        job_id,
-                        step="download",
-                        step_number=1,
-                        total_steps=7,
-                        message="Bypass download: menggunakan video lama.",
-                        percent=14.0,
-                    )
-                else:
-                    store.set_error(job_id, "Video asli tidak ditemukan di Job ID tersebut. File mungkin sudah terhapus.")
-                    return
+            # If the video already exists on disk (e.g. on Retry or rerun), reuse it directly
+            if os.path.exists(cfg.file_video_asli) and os.path.getsize(cfg.file_video_asli) > 0:
+                print(f"[Worker] File video asli sudah ada di {cfg.file_video_asli}. Bypass download.")
+                store.update_progress(
+                    job_id,
+                    step="download",
+                    step_number=1,
+                    total_steps=7,
+                    message="Bypass download: menggunakan video yang sudah terunduh.",
+                    percent=14.0,
+                )
+            elif not cfg.url_youtube:
+                store.set_error(job_id, "Video asli tidak ditemukan di Job ID tersebut. File mungkin sudah terhapus.")
+                return
             else:
                 engine.download_video(
                     cfg.url_youtube,
@@ -149,15 +150,29 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
 
         transkrip_lengkap = ""
         data_segmen = []
+        transcript_cache_path = os.path.join(cfg.outputs_dir, "transcript_data.json")
 
-        # Try YouTube JSON3 subs first
-        json3_files = glob.glob(cfg.file_video_asli.replace(".mp4", ".*.json3"))
-        file_json3 = json3_files[0] if json3_files else None
+        if os.path.exists(transcript_cache_path):
+            try:
+                import json as _json
+                with open(transcript_cache_path, "r", encoding="utf-8") as _f:
+                    _cdata = _json.load(_f)
+                    transkrip_lengkap = _cdata.get("transkrip_lengkap", "")
+                    data_segmen = _cdata.get("data_segmen", [])
+                if transkrip_lengkap and data_segmen:
+                    print(f"[Worker] Menggunakan transkrip tersimpan dari {transcript_cache_path}.")
+            except Exception as _e:
+                print(f"[Worker] Gagal memuat transcript cache: {_e}")
 
-        if source_platform == "youtube" and getattr(cfg, "use_dlp_subs", False) and file_json3 and os.path.exists(file_json3):
-            transkrip_lengkap, data_segmen = engine.parse_youtube_json3_subs(
-                file_json3, max_words_per_subtitle=cfg.max_kata_per_subtitle
-            )
+        # Try YouTube JSON3 subs first if not loaded
+        if not transkrip_lengkap or not data_segmen:
+            json3_files = glob.glob(cfg.file_video_asli.replace(".mp4", ".*.json3"))
+            file_json3 = json3_files[0] if json3_files else None
+
+            if source_platform == "youtube" and getattr(cfg, "use_dlp_subs", False) and file_json3 and os.path.exists(file_json3):
+                transkrip_lengkap, data_segmen = engine.parse_youtube_json3_subs(
+                    file_json3, max_words_per_subtitle=cfg.max_kata_per_subtitle
+                )
 
         if not transkrip_lengkap or not data_segmen:
             transkrip_lengkap, data_segmen = engine.transcribe_video(
@@ -167,6 +182,13 @@ def _run_pipeline_sync(job_id: str, payload: dict) -> None:
                 device=cfg.whisper_device,
                 compute_type=cfg.whisper_compute_type,
             )
+            # Save for future retries
+            try:
+                import json as _json
+                with open(transcript_cache_path, "w", encoding="utf-8") as _f:
+                    _json.dump({"transkrip_lengkap": transkrip_lengkap, "data_segmen": data_segmen}, _f, ensure_ascii=False)
+            except Exception:
+                pass
 
         store.update_progress(
             job_id,

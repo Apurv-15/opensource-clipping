@@ -105,14 +105,18 @@ class JobCreateRequest(BaseModel):
     font_style: FontStyle = FontStyle.HORMOZI
 
     # Whisper
-    whisper_model: str = "large-v3"
-    whisper_device: WhisperDevice = WhisperDevice.CUDA
-    whisper_compute_type: str = "float16"
+    whisper_model: str = "large-v3-turbo"
+    whisper_device: WhisperDevice = WhisperDevice.CPU
+    whisper_compute_type: str = "int8"
     use_dlp_subs: bool = False
 
-    # AI
-    ai_provider: AIProvider = AIProvider.GEMINI
-    gemini_model: str = "gemini-3-flash-preview"
+    # AI & Language
+    ai_provider: AIProvider = AIProvider.SAMBANOVA
+    ai_model: Optional[str] = Field(None, description="Specific model name for selected AI provider")
+    gemini_model: str = "gemini-3.6-flash"
+    sambanova_model: str = "Meta-Llama-3.3-70B-Instruct"
+    nvidia_model: str = "deepseek-ai/deepseek-v4-pro"
+    target_language: str = Field("english", description="Target language for subtitles and metadata (e.g. english, hinglish, indonesian)")
     face_detector: FaceDetector = FaceDetector.MEDIAPIPE
 
 
@@ -219,3 +223,5 @@ class SystemHealthResponse(BaseModel):
     ffmpeg_available: bool
     jobs_running: int
     jobs_queued: int
+    gemini_status: Optional[str] = None
+    sambanova_status: Optional[str] = None
