@@ -99,11 +99,11 @@ def run_diarization(
     """
     if not hf_token:
         raise RuntimeError(
-            "HF_TOKEN tidak ditemukan. Pyannote membutuhkan HuggingFace token. "
-            "Set via: export HF_TOKEN='your-token' atau di file .env"
+            "HF_TOKEN not found. Pyannote requires a HuggingFace token. "
+            "Set via: export HF_TOKEN='your-token' or in .env file"
         )
 
-    print("🎙️ Memuat model Pyannote speaker-diarization-3.1...")
+    print("🎙️ Loading Pyannote speaker-diarization-3.1 model...")
 
     from pyannote.audio import Pipeline
 
@@ -118,8 +118,12 @@ def run_diarization(
             "pyannote/speaker-diarization-3.1",
             use_auth_token=hf_token,
         )
-
-    # Use GPU if available
+    if pipeline is None:
+        raise RuntimeError(
+            "Pyannote model could not be loaded (gated repository). "
+            "Please ensure HF_TOKEN is valid and you accepted user conditions at: "
+            "https://hf.co/pyannote/speaker-diarization-3.1"
+        )
     try:
         import torch
 
@@ -170,12 +174,12 @@ def run_diarization(
             )
     except AttributeError as e:
         raise RuntimeError(
-            f"Gagal memproses hasil diarization ({type(diarization)}): {e}. "
-            "Pastikan model pyannote/speaker-diarization-3.1 terinstal dengan benar."
+            f"Failed to process diarization output ({type(diarization)}): {e}. "
+            "Please ensure model pyannote/speaker-diarization-3.1 is properly installed."
         )
 
     if not raw_segments:
-        raise RuntimeError("Diarization tidak menghasilkan segment apapun.")
+        raise RuntimeError("Diarization produced no segments.")
 
     # Merge adjacent segments from same speaker (gap < 0.5s)
     merged = _merge_adjacent_segments(raw_segments, max_gap=0.5)
@@ -183,7 +187,7 @@ def run_diarization(
     # Get unique speakers
     speakers = sorted(set(s["speaker"] for s in merged))
     print(
-        f"   ✅ Diarization selesai: {len(merged)} segments, {len(speakers)} speakers ({', '.join(speakers)})"
+        f"   ✅ Diarization complete: {len(merged)} segments, {len(speakers)} speakers ({', '.join(speakers)})"
     )
 
     return merged
