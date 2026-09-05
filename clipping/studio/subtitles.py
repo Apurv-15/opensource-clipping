@@ -36,6 +36,7 @@ _helpers = _load_studio_internal_module("helpers.py", "clipping_studio_helpers")
 _ffmpeg_utils = _load_studio_internal_module("ffmpeg_utils.py", "clipping_studio_ffmpeg_utils")
 format_seconds = _helpers.format_seconds
 escape_ffmpeg_filter_value = _helpers.escape_ffmpeg_filter_value
+devanagari_to_hinglish = getattr(_helpers, "devanagari_to_hinglish", lambda x: x)
 detect_video_encoder = _ffmpeg_utils.detect_video_encoder
 get_ts_encode_args = _ffmpeg_utils.get_ts_encode_args
 get_mp4_encode_args = _ffmpeg_utils.get_mp4_encode_args
@@ -51,6 +52,10 @@ typography = _load_studio_internal_module("typography.py", "clipping_studio_typo
 download_google_font = typography.download_google_font
 register_fonts_for_libass = typography.register_fonts_for_libass
 siapkan_font_tipografi = typography.siapkan_font_tipografi
+subtitle_engine = _load_studio_internal_module("subtitle_engine.py", "clipping_studio_subtitle_engine")
+reinsert_punctuation = subtitle_engine.reinsert_punctuation
+measure_width = subtitle_engine.measure_width
+fit_line = subtitle_engine.fit_line
 
 def buat_file_ass(
     data_segmen,
@@ -105,6 +110,55 @@ def buat_file_ass(
     daftar_font = cfg.daftar_font
     gaya = cfg.gaya_font_aktif
     font_dir = cfg.font_dir
+
+    # Auto-transliterate Devanagari (Hindi) to Hinglish (Roman / English alphabet)
+    # when target_language is 'hinglish' or 'english' or unless user specifically requested raw Hindi script
+    target_lang = getattr(cfg, "target_language", "english").lower()
+    should_transliterate_to_hinglish = target_lang in ("hinglish", "english", "auto") or gaya != "MUKTA"
+
+    if should_transliterate_to_hinglish:
+        new_segmen = []
+        for seg in data_segmen:
+            seg_copy = dict(seg)
+            new_words = []
+            for w in seg.get("words", []):
+                w_copy = dict(w)
+                raw_w = w.get("word", "")
+                if any('\u0900' <= char <= '\u097F' for char in raw_w):
+                    w_copy["word"] = devanagari_to_hinglish(raw_w)
+                new_words.append(w_copy)
+            seg_copy["words"] = new_words
+            new_segmen.append(seg_copy)
+        data_segmen = new_segmen
+
+    # Realign punctuation from segment text onto raw Whisper words
+    for seg in data_segmen:
+        seg_text = seg.get("text", "")
+        words_list = seg.get("words", [])
+        if seg_text and words_list:
+            raw_words = [w.get("word", "") for w in words_list]
+            has_seg_punct = any(p in seg_text for p in ".,!?")
+            words_have_punct = any(w.endswith((".", ",", "!", "?")) for w in raw_words)
+            if has_seg_punct and not words_have_punct:
+                try:
+                    fixed_words = reinsert_punctuation(raw_words, seg_text)
+                    for w_dict, fw in zip(words_list, fixed_words):
+                        w_dict["word"] = fw
+                except Exception:
+                    pass
+
+    # Auto-detect Devanagari (Hindi) in segments to avoid tofu characters if Devanagari remains
+    has_devanagari = False
+    for seg in data_segmen:
+        for w in seg.get("words", []):
+            if any('\u0900' <= char <= '\u097F' for char in w.get("word", "")):
+                has_devanagari = True
+                break
+        if has_devanagari:
+            break
+
+    if has_devanagari and "MUKTA" in daftar_font:
+        gaya = "MUKTA"
 
     font_utama_dict = daftar_font[gaya]["utama"]
     font_khusus_dict = daftar_font[gaya]["khusus"]
@@ -213,7 +267,7 @@ def buat_file_ass(
             f_path = os.path.join(font_dir, f_file)
 
             if not cek_font_di_folder(f_file):
-                raise FileNotFoundError(f"Font tidak ditemukan: {f_path}")
+                raise FileNotFoundError(f"Font not found: {f_path}")
 
             font_cache[key] = ImageFont.truetype(
                 f_path,
@@ -315,7 +369,13 @@ def buat_file_ass(
                 current_y = play_res_y - margin_v - total_stack_h
 
             for line in lines:
-                start_x = (play_res_x - line["width"]) / 2
+                # SAFE_WIDTH guard (fixes overflow bug on long transliterations / compound words)
+                line_scale = 1.0
+                if line["width"] > max_line_width:
+                    line_scale = max(0.55, max_line_width / line["width"])
+                    line["width"] = int(line["width"] * line_scale)
+
+                start_x = max(margin_lr, (play_res_x - line["width"]) / 2)
                 
                 if get_x_func and cfg.dev_mode and source_dim:
                     sw, sh = source_dim
@@ -324,21 +384,23 @@ def buat_file_ass(
                     center_x_src = get_x_func(t_ref)
                     # Target center in PlayResX (1920)
                     target_center_x = center_x_src * (play_res_x / sw)
-                    start_x = target_center_x - (line["width"] / 2)
+                    start_x = max(margin_lr, min(play_res_x - margin_lr - line["width"], target_center_x - (line["width"] / 2)))
 
                 line_y = current_y + line["height"]
 
                 for w_data in line["words"]:
-                    word_x = start_x + w_data["x_offset"] + (w_data["w"] / 2)
+                    w_scaled_w = w_data["w"] * line_scale
+                    w_scaled_x = w_data["x_offset"] * line_scale
+                    word_x = start_x + w_scaled_x + (w_scaled_w / 2)
                     w_appear_ms = int((w_data["start"] - seg_s) * 1000)
                     w_end_ms = int((w_data["end"] - seg_s) * 1000)
 
                     if w_data["plan"]:
                         w_style = w_data["plan"].get("style", "khusus")
                         w_anim = w_data["plan"].get("animasi", "bounce_pop")
-                        target_scale = get_scale_value(
+                        target_scale = int(get_scale_value(
                             w_data["plan"].get("scale_level", 2)
-                        )
+                        ) * line_scale)
                         font_info = (
                             font_khusus_dict if w_style == "khusus" else font_utama_dict
                         )
@@ -346,7 +408,7 @@ def buat_file_ass(
                         c_tag = f"\\c{warna_khusus}"
                     else:
                         w_anim = "none"
-                        target_scale = 100
+                        target_scale = int(100 * line_scale)
                         f_tag = build_font_tag(font_utama_dict)
                         c_tag = "\\c&HFFFFFF&"
 
