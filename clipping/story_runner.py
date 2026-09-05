@@ -46,8 +46,8 @@ def _transcribe_sources(
     try:
         from . import engine
     except ImportError as e:
-        print(f"   ⚠️ Whisper tidak tersedia ({e}). Skip transkripsi.")
-        print(f"   💡 Install faster-whisper untuk mengaktifkan transkripsi.")
+        print(f"   ⚠️ Whisper not available ({e}). Skipping transcription.")
+        print(f"   💡 Install faster-whisper to enable transcription.")
         return {}
 
     whisper_model = getattr(cfg, "whisper_model", "large-v3")
@@ -72,7 +72,7 @@ def _transcribe_sources(
                 pass  # Re-transcribe if JSON is corrupted
 
         if not os.path.exists(video_path):
-            print(f"   ⚠️ [{idx}/{total}] '{sid}' file tidak ditemukan, skip transkrip.")
+            print(f"   ⚠️ [{idx}/{total}] '{sid}' file not found, skipping transcription.")
             continue
 
         print(f"   🎤 [{idx}/{total}] Transcribing '{sid}'...")
@@ -97,10 +97,10 @@ def _transcribe_sources(
                 json.dump(result, f, ensure_ascii=False, indent=2)
 
             transcripts[sid] = result
-            print(f"   ✅ '{sid}' berhasil ditranskrip ({len(segmen)} segmen).")
+            print(f"   ✅ '{sid}' successfully transcribed ({len(segmen)} segments).")
 
         except Exception as e:
-            print(f"   ⚠️ '{sid}' gagal ditranskrip: {e}")
+            print(f"   ⚠️ '{sid}' failed to transcribe: {e}")
 
     return transcripts
 
@@ -155,7 +155,7 @@ def run_story_pipeline(cfg) -> list[dict]:
                 if os.path.exists(cached):
                     cached_paths[sid] = cached
                 else:
-                    print(f"   ⚠️ Cache tidak ditemukan untuk '{sid}': {cached}")
+                    print(f"   ⚠️ Cache not found for '{sid}': {cached}")
     else:
         print(f"\n[2/6] Downloading sources → {cache_dir}")
         download_height = getattr(cfg, "download_source_height", "max")
@@ -171,7 +171,7 @@ def run_story_pipeline(cfg) -> list[dict]:
     # ------------------------------------------------------------------
     print(f"\n[3/6] Transcribing sources with Whisper...")
     transcripts = _transcribe_sources(cached_paths, cache_dir, cfg)
-    print(f"   📝 {len(transcripts)}/{len(cached_paths)} source(s) berhasil ditranskrip.")
+    print(f"   📝 {len(transcripts)}/{len(cached_paths)} source(s) successfully transcribed.")
 
     # ------------------------------------------------------------------
     # Step 4 — Load & validate recipe
@@ -258,7 +258,7 @@ def run_story_pipeline(cfg) -> list[dict]:
         json.dump(transcripts_summary, f, ensure_ascii=False, indent=2)
 
     print(f"\n{'='*70}")
-    print(f"✅ Story Clip selesai! {len(manifest)} clip(s) dirender.")
+    print(f"✅ Story Clip complete! {len(manifest)} clip(s) rendered.")
     print(f"💾 Manifest: {manifest_path}")
     print(f"📝 Transcripts: {transcripts_index_path}")
     print(f"📁 Output: {story_output_dir}")
