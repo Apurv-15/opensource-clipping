@@ -29,6 +29,8 @@ PILIHAN_RASIO = "9:16"
 # 2. PENGATURAN KONTEN & HOOK
 MAX_KATA_PER_SUBTITLE = 5
 DURASI_HOOK = 3
+MIN_CLIP_DURATION = int(os.environ.get("DEFAULT_MIN_CLIP_DURATION", "20"))
+MAX_CLIP_DURATION = int(os.environ.get("DEFAULT_MAX_CLIP_DURATION", "90"))
 USE_BROLL = True
 USE_HOOK_GLITCH = True
 USE_SPLIT_SCREEN = False
@@ -44,6 +46,7 @@ SOURCE_PLATFORM = "youtube"
 USE_ADVANCED_TEXT = False
 USE_ADVANCED_TEXT_ON_HOOK = False
 USE_KARAOKE_EFFECT = True
+TEXT_BEHIND_PERSON = False
 
 GAYA_FONT_AKTIF = "HORMOZI"
 
@@ -102,6 +105,20 @@ DAFTAR_FONT = {
             "file": "BebasNeue-Regular.ttf",
             "url": "https://cdn.jsdelivr.net/fontsource/fonts/bebas-neue@latest/latin-400-normal.ttf",
             "bold": 0,
+        },
+    },
+    "MUKTA": {
+        "utama": {
+            "nama": "Mukta",
+            "file": "Mukta-Bold.ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
+            "bold": 1,
+        },
+        "khusus": {
+            "nama": "Mukta ExtraBold",
+            "file": "Mukta-ExtraBold.ttf",
+            "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-ExtraBold.ttf",
+            "bold": 1,
         },
     },
 }
@@ -256,6 +273,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Hook teaser duration in seconds",
     )
     p.add_argument(
+        "--min-clip-duration",
+        type=int,
+        default=MIN_CLIP_DURATION,
+        help="Minimum clip duration in seconds (default: 20)",
+    )
+    p.add_argument(
+        "--max-clip-duration",
+        type=int,
+        default=MAX_CLIP_DURATION,
+        help="Maximum clip duration in seconds (default: 90)",
+    )
+    p.add_argument(
         "--hook-source",
         default=None,
         help="Google Drive URL or local path for a single custom hook video (.mp4)",
@@ -373,6 +402,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=USE_ADVANCED_TEXT_ON_HOOK,
         help="Enable advanced typography on hook",
+    )
+    p.add_argument(
+        "--text-behind-person",
+        action="store_true",
+        default=TEXT_BEHIND_PERSON,
+        help="Place kinetic typography / subtitles behind the speaker using AI segmentation",
     )
 
     # --- Whisper ---
@@ -754,23 +789,23 @@ def build_config(argv: list[str] | None = None) -> SimpleNamespace:
     # Validate watermark args
     if args.watermark:
         if not args.text and not args.image:
-            parser.error("--watermark membutuhkan --text atau --image.")
+            parser.error("--watermark requires --text or --image.")
         if not (1 <= args.opacity <= 100):
-            parser.error(f"--opacity harus antara 1-100, diberikan: {args.opacity}")
+            parser.error(f"--opacity must be between 1-100, got: {args.opacity}")
         if args.padding < 0:
-            parser.error(f"--padding tidak boleh negatif, diberikan: {args.padding}")
+            parser.error(f"--padding cannot be negative, got: {args.padding}")
         if args.watermark_font_size < 0:
-            parser.error(f"--watermark-font-size tidak boleh negatif, diberikan: {args.watermark_font_size}")
+            parser.error(f"--watermark-font-size cannot be negative, got: {args.watermark_font_size}")
         if not (1 <= args.watermark_scale <= 100):
-            parser.error(f"--watermark-scale harus antara 1-100, diberikan: {args.watermark_scale}")
+            parser.error(f"--watermark-scale must be between 1-100, got: {args.watermark_scale}")
         if args.image:
             if not os.path.exists(args.image):
-                parser.error(f"File watermark image tidak ditemukan: {args.image}")
+                parser.error(f"Watermark image file not found: {args.image}")
             valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff")
             if not args.image.lower().endswith(valid_exts):
                 parser.error(
-                    f"Format file watermark image tidak didukung: {args.image}. "
-                    f"Format yang didukung: {', '.join(valid_exts)}"
+                    f"Watermark image file format not supported: {args.image}. "
+                    f"Supported formats: {', '.join(valid_exts)}"
                 )
 
     base_dir = os.getcwd()
@@ -812,6 +847,8 @@ def build_config(argv: list[str] | None = None) -> SimpleNamespace:
         # Konten & Hook
         max_kata_per_subtitle=args.words_per_sub,
         durasi_hook=args.hook_duration,
+        min_clip_duration=args.min_clip_duration,
+        max_clip_duration=args.max_clip_duration,
         hook_source=args.hook_source,
         hook_source_start=args.hook_source_start,
         # Hook V2 & Segment Trimming
@@ -842,6 +879,7 @@ def build_config(argv: list[str] | None = None) -> SimpleNamespace:
         daftar_font=DAFTAR_FONT,
         use_advanced_text=args.advanced_text,
         use_advanced_text_on_hook=args.advanced_text_hook,
+        text_behind_person=args.text_behind_person,
         # ASS position values
         ass_align_916=ASS_ALIGN_916,
         ass_margin_916=ASS_MARGIN_916,
